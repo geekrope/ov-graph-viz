@@ -7,11 +7,16 @@ renders the result to SVG (Graphviz "dot", top-to-bottom). Deliver as a GitHub r
 
 Pipeline:  Model Loading -> Graph Construction -> Graph Transformation -> Graph Rendering
 
+Legend:  [x] done   [~] partially done / draft   [ ] not started
+Status as of 2026-10-12: ~3-4 h of estimate done, ~13-17 h remaining (+ optional pass).
+
 
 -------------------------------------------------------------------------
 STEP 0 - Environment & repository setup
 -------------------------------------------------------------------------
-[ ] Create a git repo and a package layout, e.g.:
+[~] Create a git repo and a package layout, e.g.:
+      (git repo exists; code lives flat in src/ - graph.py, parser.py,
+       transformation.py, renderer.py, main.py; package layout not yet)
       model_graph_viewer/
         graph.py          (intermediate representation)
         parsers/          (base.py, openvino_parser.py)
@@ -28,36 +33,45 @@ STEP 0 - Environment & repository setup
 [ ] Dependencies: openvino, graphviz (Python pkg + Graphviz system binaries),
     pytest, optimum[openvino] (only for exporting TinyLlama).
 [ ] Add requirements.txt / pyproject.toml.
-[ ] Run starter_code.py to confirm Graphviz works (already produced simple_graph.svg).
+[x] Run starter_code.py to confirm Graphviz works (already produced simple_graph.svg).
+[ ] .gitignore: add ov_*/ and *.bin (model folder is currently NOT ignored!).
 
 
 -------------------------------------------------------------------------
 STEP 1 - Intermediate Graph Representation (section 3.2)
 -------------------------------------------------------------------------
-[ ] Node: unique id (separate from name), name, op type, attributes dict,
-    visualization metadata dict (e.g. border color, extra label lines).
-[ ] Edge: src node id + output port, dst node id + input port,
+[x] Node: unique id (separate from name), name, op type, attributes dict,
+    visualization metadata (NodeMetadata: border_color, hidden_inputs).
+[x] Edge: src node id + output port, dst node id + input port,
     tensor shape (optional, supports dynamic/partial dims like "?" or ranges),
     dtype (optional).
-[ ] Graph container with efficient indexes (avoid full scans):
-      - nodes by id (dict)
-      - incoming edges per node, outgoing edges per node
-      - name -> list of node ids (names may be duplicated!)
-[ ] Operations: add_node, add_edge, remove_node (also removes its edges),
-    remove_edge, get in/out edges, consumers/producers, lookup by name.
-[ ] Must handle: multiple inputs/outputs, multiple edges between same pair of
+[~] Graph container with efficient indexes (avoid full scans):
+      [x] nodes by id (dict)
+      [x] incoming edges per node, outgoing edges per node (_in / _out)
+      [ ] name -> list of node ids (names may be duplicated!)
+[~] Operations: [x] add_node, add_edge, remove_node (also removes its edges),
+    remove_edge, in/out edges, in/out degree;
+    [ ] lookup by name; [ ] rename outcoming_edges -> outgoing_edges,
+    return list copies + return type hints.
+[x] topological_sort (Kahn, iterative, raises on cycle).
+    [ ] optional: heapq by insertion index for a "deep" order
+        (FIFO Kahn gives a level-by-level order).
+[~] Must handle: multiple inputs/outputs, multiple edges between same pair of
     nodes, duplicate names, dynamic shapes, missing metadata, Parameter/Result ops.
-[ ] Keep the graph valid after modifications (no dangling edges).
+    (supported by design, not yet covered by tests)
+[x] Keep the graph valid after modifications (no dangling edges).
 [ ] Optional: a validate() method used by tests.
+[ ] Replace itertools.count with int counter (_next_node_id) when custom ids needed.
 
 
 -------------------------------------------------------------------------
 STEP 2 - Model Loading / Parser (section 3.1)
 -------------------------------------------------------------------------
-[ ] Define an abstract ModelParser interface: parse(path) -> Graph.
+[x] Define an abstract ModelParser interface: parse(path) -> Graph.
 [ ] Parser registry (e.g. by file extension) so ONNX etc. can be added later
     without touching passes or renderer.
-[ ] OpenVINO parser:
+[x] OpenVINO parser (two-pass: nodes, then edges; port bug fixed and verified
+    against raw OpenVINO output; TinyLlama: 3921 nodes / 4492 edges):
       - read model with openvino.Core().read_model(xml) (.bin found automatically)
       - assign unique ids to every op
       - copy op type, friendly name, attributes (stringified; never tensor values)
@@ -65,6 +79,7 @@ STEP 2 - Model Loading / Parser (section 3.1)
         indices, partial shape, element type
       - mark Parameter / Result (model inputs/outputs)
       - for Constants: store dtype and shape (NOT values)
+[ ] Minor: keyword args in Edge(...), fix docstrings ("unknown until runtime").
 [ ] Meaningful errors: file not found, missing .bin, unsupported extension,
     invalid/corrupt XML (wrap OpenVINO exceptions in your own error class).
 
@@ -72,51 +87,68 @@ STEP 2 - Model Loading / Parser (section 3.1)
 -------------------------------------------------------------------------
 STEP 3 - Transformation Pipeline (section 3.3)
 -------------------------------------------------------------------------
-[ ] Abstract TransformationPass with name and apply(graph) -> graph.
+[x] Abstract TransformationPass with apply(graph) -> graph
+    (options go to the constructor). [ ] add name.
 [ ] Pass registry: name -> class, so CLI can build passes by name and
     new passes are added just by registering them.
 [ ] Pipeline: ordered list of passes; each can be enabled/disabled and
     configured with options; runs them in order; records per-pass timing.
-[ ] Passes operate only on the intermediate graph (no OpenVINO imports).
-[ ] Passes never touch the original model (they only see the IR graph).
-[ ] Decide on in-place vs copy semantics; avoid copying the whole graph per
+[x] Passes operate only on the intermediate graph (no OpenVINO imports).
+[x] Passes never touch the original model (they only see the IR graph).
+[~] Decide on in-place vs copy semantics; avoid copying the whole graph per
     pass (memory requirement) - document the choice.
+    (decided: in-place; still to document in README)
+[x] Extra: TruncationPass(size) - keeps first N nodes of topological order
+    (debug / render-performance measurements). [ ] validate size >= 0.
 
 
 -------------------------------------------------------------------------
 STEP 4 - Node Highlighting Pass (section 3.3.1)
 -------------------------------------------------------------------------
-[ ] Accepts a list of node names (option, e.g. --highlight-names a,b).
+[~] Accepts a list of node names (option, e.g. --highlight-names a,b).
+    (draft exists, BUT compares node.node_type instead of node.name - fix!)
 [ ] Uses name index to find all matching nodes (incl. duplicates).
-[ ] Sets visualization metadata (e.g. border_color = "red") only on matches.
+[x] Sets visualization metadata (e.g. border_color = "red") only on matches.
 [ ] Leaves other nodes unchanged; optionally warn about names not found.
 
 
 -------------------------------------------------------------------------
 STEP 5 - Constant Hiding Pass (section 3.3.2)
 -------------------------------------------------------------------------
+Draft works on TinyLlama (3921/4492 -> ~2352 nodes, 0.003 s). Known bugs:
 For each Constant node:
-[ ] For each outgoing edge -> add attribute to consumer keyed by the consumer's
-    input port index, e.g.  "[1]: fp32[1024, 768]".
-[ ] If the Constant has >1 consumer edges -> append "(shared: <const_node_id>)".
-[ ] Remove the Constant's edges from the visualization.
-[ ] Remove the Constant node only if no visible connections remain.
-[ ] Preserve all unrelated edges; never copy tensor values.
+[x] For each outgoing edge -> add attribute to consumer keyed by the consumer's
+    input port index, e.g.  "[1]: fp32[1024, 768]".  (stored as HiddenInput)
+[~] If the Constant has >1 consumer edges -> append "(shared: <const_node_id>)".
+    [ ] bug: shared = out_degree > 0, must be > 1
+    [ ] add source_id to HiddenInput (needed for the marker)
+[x] Remove the Constant's edges from the visualization.
+[ ] Remove the Constant node only if no visible connections remain
+    (currently removed unconditionally; skip Constant -> Result edges).
+[ ] bug: missing `continue` after "has input ports" warning.
+[x] Preserve all unrelated edges; never copy tensor values.
 [ ] (Optional option: also hide Constant -> Convert chains, common in fp16 models.)
 
 
 -------------------------------------------------------------------------
 STEP 6 - Graph Rendering (section 3.4)
 -------------------------------------------------------------------------
-[ ] Abstract Renderer interface; Graphviz implementation (build on starter_code.py).
-[ ] rankdir=TB (top-to-bottom), dot layout.
-[ ] Node label: op type, name, node id, attributes (incl. hidden-constant attrs).
+[~] Abstract Renderer interface; Graphviz implementation (build on starter_code.py).
+    ([x] GraphvizRenderer draft in renderer.py; [ ] Renderer(ABC) was removed -
+     bring it back)
+[x] rankdir=TB (top-to-bottom), dot layout.
+[~] Node label: op type, name, node id, attributes (incl. hidden-constant attrs).
     Escape special characters (record/HTML labels break on <, >, {, |, etc.).
-[ ] Show port info: use HTML-like labels with port cells, or edge labels like
+    ([x] type/name/id/attrs + escaping verified on a tiny model;
+     [ ] hidden inputs not rendered yet)
+[x] Show port info: use HTML-like labels with port cells, or edge labels like
     "out 0 -> in 1" plus shape/dtype.
 [ ] Apply visualization metadata (red border for highlight, custom fill, etc.).
-[ ] Colors by op type with a default color for unknown types (no KeyError!).
-[ ] Output a valid SVG file to the user-provided path.
+[x] Colors by op type with a default color for unknown types (no KeyError!).
+[x] Output a valid SVG file to the user-provided path.
+[ ] Performance: dot is fast at ~1200 nodes, very slow at ~1500 (long edges ->
+    virtual nodes, edge labels). Measure phases with `dot -v`; try mclimit,
+    remincross=false, splines=polyline, nslimit.
 
 
 -------------------------------------------------------------------------
@@ -160,7 +192,7 @@ STEP 8 - Tests (section 4) - pytest
 -------------------------------------------------------------------------
 STEP 9 - Scalability & Performance (section 5)
 -------------------------------------------------------------------------
-[ ] Export TinyLlama:
+[ ] Export TinyLlama (current ov_TinyLlama_v1_1 is int8-compressed, not fp16):
       optimum-cli export openvino --model TinyLlama/TinyLlama-1.1B-Chat-v1.0 \
           --weight-format fp16 OUTPUT_DIR
 [ ] Make sure all graph ops use indexes (O(1)/O(degree)), no repeated full scans.
@@ -174,7 +206,13 @@ STEP 9 - Scalability & Performance (section 5)
 -------------------------------------------------------------------------
 STEP 10 - (OPTIONAL) Custom Visualization Improvement Pass (section 3.3.3)
 -------------------------------------------------------------------------
-[ ] Open TinyLlama in Netron, find a readability problem.
+[x] Open TinyLlama, find a readability problem. Found:
+      - int8 weight decompression chains (Convert/Subtract/Multiply/Convert on
+        constants) before every MatMul - ~1/3 of graph after constant hiding
+        -> WeightDecompressionFoldingPass (preferred candidate)
+      - KV-cache init: ShapeOf->Gather->Concat->Broadcast->ReadValue->Gather(beam_idx)
+        with huge fan-outs from Gather and beam_idx
+      - RMSNorm decomposed into Power/ReduceMean/Sqrt/Divide
 [ ] Ideas: collapse repeated decoder layers / known patterns (RMSNorm, RoPE,
     attention block) into a single node; hide Convert/ShapeOf/Reshape helper
     chains; group ops into clusters per layer.
