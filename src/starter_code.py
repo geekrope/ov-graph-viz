@@ -86,7 +86,7 @@ def main():
         shape = ",".join(map(str, e.shape))
         dg.edge(str(e.from_node), str(e.to_node), label=f"[{shape}]")
 
-    dg.render("simple_graph", cleanup=True)
+    dg.render("../simple_graph", cleanup=True)
 
 
 if __name__ == "__main__":
