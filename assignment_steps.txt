@@ -1,0 +1,220 @@
+MODEL GRAPH VISUALIZATION WITH TRANSFORMATION PASSES - STEP-BY-STEP PLAN
+=========================================================================
+
+Goal: Build a Python library + CLI that loads an OpenVINO model, converts it to a
+framework-independent graph, applies configurable transformation passes, and
+renders the result to SVG (Graphviz "dot", top-to-bottom). Deliver as a GitHub repo.
+
+Pipeline:  Model Loading -> Graph Construction -> Graph Transformation -> Graph Rendering
+
+
+-------------------------------------------------------------------------
+STEP 0 - Environment & repository setup
+-------------------------------------------------------------------------
+[ ] Create a git repo and a package layout, e.g.:
+      model_graph_viewer/
+        graph.py          (intermediate representation)
+        parsers/          (base.py, openvino_parser.py)
+        passes/           (base.py, highlight.py, hide_constants.py, ...)
+        renderers/        (base.py, graphviz_renderer.py)
+        pipeline.py       (pass pipeline + timing)
+        api.py            (public Python API)
+        cli.py            (command-line tool)
+      model_graph_viewer.py (CLI entry script) or a console_script entry point
+      tests/
+      examples/           (generated SVGs)
+      scripts/            (model download/export scripts)
+      README.md
+[ ] Dependencies: openvino, graphviz (Python pkg + Graphviz system binaries),
+    pytest, optimum[openvino] (only for exporting TinyLlama).
+[ ] Add requirements.txt / pyproject.toml.
+[ ] Run starter_code.py to confirm Graphviz works (already produced simple_graph.svg).
+
+
+-------------------------------------------------------------------------
+STEP 1 - Intermediate Graph Representation (section 3.2)
+-------------------------------------------------------------------------
+[ ] Node: unique id (separate from name), name, op type, attributes dict,
+    visualization metadata dict (e.g. border color, extra label lines).
+[ ] Edge: src node id + output port, dst node id + input port,
+    tensor shape (optional, supports dynamic/partial dims like "?" or ranges),
+    dtype (optional).
+[ ] Graph container with efficient indexes (avoid full scans):
+      - nodes by id (dict)
+      - incoming edges per node, outgoing edges per node
+      - name -> list of node ids (names may be duplicated!)
+[ ] Operations: add_node, add_edge, remove_node (also removes its edges),
+    remove_edge, get in/out edges, consumers/producers, lookup by name.
+[ ] Must handle: multiple inputs/outputs, multiple edges between same pair of
+    nodes, duplicate names, dynamic shapes, missing metadata, Parameter/Result ops.
+[ ] Keep the graph valid after modifications (no dangling edges).
+[ ] Optional: a validate() method used by tests.
+
+
+-------------------------------------------------------------------------
+STEP 2 - Model Loading / Parser (section 3.1)
+-------------------------------------------------------------------------
+[ ] Define an abstract ModelParser interface: parse(path) -> Graph.
+[ ] Parser registry (e.g. by file extension) so ONNX etc. can be added later
+    without touching passes or renderer.
+[ ] OpenVINO parser:
+      - read model with openvino.Core().read_model(xml) (.bin found automatically)
+      - assign unique ids to every op
+      - copy op type, friendly name, attributes (stringified; never tensor values)
+      - for every input port: find source output -> create Edge with port
+        indices, partial shape, element type
+      - mark Parameter / Result (model inputs/outputs)
+      - for Constants: store dtype and shape (NOT values)
+[ ] Meaningful errors: file not found, missing .bin, unsupported extension,
+    invalid/corrupt XML (wrap OpenVINO exceptions in your own error class).
+
+
+-------------------------------------------------------------------------
+STEP 3 - Transformation Pipeline (section 3.3)
+-------------------------------------------------------------------------
+[ ] Abstract TransformationPass with name and apply(graph) -> graph.
+[ ] Pass registry: name -> class, so CLI can build passes by name and
+    new passes are added just by registering them.
+[ ] Pipeline: ordered list of passes; each can be enabled/disabled and
+    configured with options; runs them in order; records per-pass timing.
+[ ] Passes operate only on the intermediate graph (no OpenVINO imports).
+[ ] Passes never touch the original model (they only see the IR graph).
+[ ] Decide on in-place vs copy semantics; avoid copying the whole graph per
+    pass (memory requirement) - document the choice.
+
+
+-------------------------------------------------------------------------
+STEP 4 - Node Highlighting Pass (section 3.3.1)
+-------------------------------------------------------------------------
+[ ] Accepts a list of node names (option, e.g. --highlight-names a,b).
+[ ] Uses name index to find all matching nodes (incl. duplicates).
+[ ] Sets visualization metadata (e.g. border_color = "red") only on matches.
+[ ] Leaves other nodes unchanged; optionally warn about names not found.
+
+
+-------------------------------------------------------------------------
+STEP 5 - Constant Hiding Pass (section 3.3.2)
+-------------------------------------------------------------------------
+For each Constant node:
+[ ] For each outgoing edge -> add attribute to consumer keyed by the consumer's
+    input port index, e.g.  "[1]: fp32[1024, 768]".
+[ ] If the Constant has >1 consumer edges -> append "(shared: <const_node_id>)".
+[ ] Remove the Constant's edges from the visualization.
+[ ] Remove the Constant node only if no visible connections remain.
+[ ] Preserve all unrelated edges; never copy tensor values.
+[ ] (Optional option: also hide Constant -> Convert chains, common in fp16 models.)
+
+
+-------------------------------------------------------------------------
+STEP 6 - Graph Rendering (section 3.4)
+-------------------------------------------------------------------------
+[ ] Abstract Renderer interface; Graphviz implementation (build on starter_code.py).
+[ ] rankdir=TB (top-to-bottom), dot layout.
+[ ] Node label: op type, name, node id, attributes (incl. hidden-constant attrs).
+    Escape special characters (record/HTML labels break on <, >, {, |, etc.).
+[ ] Show port info: use HTML-like labels with port cells, or edge labels like
+    "out 0 -> in 1" plus shape/dtype.
+[ ] Apply visualization metadata (red border for highlight, custom fill, etc.).
+[ ] Colors by op type with a default color for unknown types (no KeyError!).
+[ ] Output a valid SVG file to the user-provided path.
+
+
+-------------------------------------------------------------------------
+STEP 7 - Python API and CLI (section 3.5)
+-------------------------------------------------------------------------
+[ ] Python API, e.g.:
+      graph = load_model("model.xml")
+      graph = Pipeline([HideConstantsPass(), HighlightPass(names=[...])]).run(graph)
+      render_svg(graph, "out.svg")
+    plus a one-call convenience function visualize(model, output, passes).
+[ ] CLI (argparse) built on the API:
+      python model_graph_viewer.py --model model.xml --output graph.svg
+      python model_graph_viewer.py --model model.xml --output s.svg \
+          --passes hide-constants,highlight --highlight-names "MatMul_1"
+[ ] No passes -> plain visualization.
+[ ] Passes applied in the order given; pass-specific options supported.
+[ ] --list-passes option, --timing/--verbose option.
+[ ] Clear errors + non-zero exit codes for bad args, unknown passes,
+    missing files, unsupported formats.
+
+
+-------------------------------------------------------------------------
+STEP 8 - Tests (section 4) - pytest
+-------------------------------------------------------------------------
+[ ] Graph IR: node/edge creation, connectivity, port indices, multiple edges
+    between same nodes, duplicate names, dynamic shapes, node removal.
+[ ] Parser: build small OpenVINO models in code (openvino.runtime.opset),
+    save to tmp_path, parse, check op types, edges, ports, shapes, dtypes;
+    error cases (missing file, bad extension, invalid XML).
+[ ] Highlight pass: only matching nodes highlighted, others untouched.
+[ ] Constant hiding: single consumer, shared constant (marker with id),
+    correct port index, unrelated edges preserved, node removed correctly.
+[ ] Pipeline: several passes in specified order, graph valid afterwards,
+    disabled passes skipped.
+[ ] Renderer: SVG file exists, parses as XML, contains node labels and the
+    red highlight color.
+[ ] End-to-end: small OpenVINO model -> passes -> SVG (also via CLI).
+[ ] Use synthetic graphs to test passes independently of parser/renderer.
+
+
+-------------------------------------------------------------------------
+STEP 9 - Scalability & Performance (section 5)
+-------------------------------------------------------------------------
+[ ] Export TinyLlama:
+      optimum-cli export openvino --model TinyLlama/TinyLlama-1.1B-Chat-v1.0 \
+          --weight-format fp16 OUTPUT_DIR
+[ ] Make sure all graph ops use indexes (O(1)/O(degree)), no repeated full scans.
+[ ] Avoid full graph copies per pass.
+[ ] Measure time of: (a) loading + IR construction, (b) passes, (c) rendering.
+[ ] Record node/edge counts and environment (CPU, RAM, OS, Python, versions).
+[ ] Document bottlenecks (Graphviz layout on ~5k+ nodes is the main one) and
+    ideas (subgraph rendering, collapsing, faster layout engines, splines=false).
+
+
+-------------------------------------------------------------------------
+STEP 10 - (OPTIONAL) Custom Visualization Improvement Pass (section 3.3.3)
+-------------------------------------------------------------------------
+[ ] Open TinyLlama in Netron, find a readability problem.
+[ ] Ideas: collapse repeated decoder layers / known patterns (RMSNorm, RoPE,
+    attention block) into a single node; hide Convert/ShapeOf/Reshape helper
+    chains; group ops into clusters per layer.
+[ ] Implement as a registered pass, add tests.
+[ ] Produce before/after SVGs and explain the improvement in README.
+
+
+-------------------------------------------------------------------------
+STEP 11 - Examples (section 8)
+-------------------------------------------------------------------------
+[ ] Use at least 3 OpenVINO models, including TinyLlama (others: e.g. a small
+    CNN like ResNet/MobileNet from OMZ or torchvision export, a tiny synthetic model).
+[ ] Generate SVGs: no passes vs hide-constants vs highlight (before/after).
+[ ] Add scripts to download/export models (don't commit large model files).
+
+
+-------------------------------------------------------------------------
+STEP 12 - README.md (section 8)
+-------------------------------------------------------------------------
+[ ] Getting started (install deps incl. Graphviz binaries, run the tool)
+[ ] Usage examples: CLI + Python API, selecting/configuring passes
+[ ] Architecture overview and key design decisions
+[ ] Extensibility: how to add a new pass / a new model format (e.g. ONNX)
+[ ] Testing: how to run pytest
+[ ] Performance: graph sizes, timings, environment
+[ ] Known limitations and possible improvements
+
+
+-------------------------------------------------------------------------
+STEP 13 - Final review & submission
+-------------------------------------------------------------------------
+[ ] Type hints everywhere, clear naming, consistent error handling.
+[ ] Fresh clone -> install -> run tests -> reproduce SVGs works.
+[ ] Push to GitHub and submit link.
+[ ] Prepare to explain every design decision (AI use allowed, but you must
+    understand all code).
+
+
+EVALUATION CRITERIA (keep in mind throughout)
+---------------------------------------------
+Software design, correctness, code quality, testing, scalability/performance,
+documentation, problem-solving & understanding. Simple, reliable, extensible
+beats feature-rich but messy.
