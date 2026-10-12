@@ -8,7 +8,9 @@ renders the result to SVG (Graphviz "dot", top-to-bottom). Deliver as a GitHub r
 Pipeline:  Model Loading -> Graph Construction -> Graph Transformation -> Graph Rendering
 
 Legend:  [x] done   [~] partially done / draft   [ ] not started
-Status as of 2026-10-12: ~3-4 h of estimate done, ~13-17 h remaining (+ optional pass).
+Status as of 2026-10-12 (late evening): ~6-7 h of estimate done, ~10-14 h remaining
+(+ optional pass). 17 tests passing (test_transformation, test_pipeline, test_graph).
+!! Nothing from 2026-10-12 is committed yet - commit first thing next session.
 
 
 -------------------------------------------------------------------------
@@ -30,11 +32,18 @@ STEP 0 - Environment & repository setup
       examples/           (generated SVGs)
       scripts/            (model download/export scripts)
       README.md
-[ ] Dependencies: openvino, graphviz (Python pkg + Graphviz system binaries),
-    pytest, optimum[openvino] (only for exporting TinyLlama).
-[ ] Add requirements.txt / pyproject.toml.
+[~] Dependencies: openvino, graphviz (Python pkg + Graphviz system binaries),
+    pytest, pytest-cov, optimum[openvino] (only for exporting TinyLlama).
+    (installed locally; not yet listed in a requirements file)
+[~] Add requirements.txt / pyproject.toml.
+    ([x] pyproject.toml with pytest config: pythonpath=src, testpaths=tests;
+     [ ] dependencies; [ ] coverage config: omit main.py/starter_code.py,
+     exclude @abstractmethod)
+[x] dev_commands.md: test / coverage / Graphviz profiling commands.
 [x] Run starter_code.py to confirm Graphviz works (already produced simple_graph.svg).
-[ ] .gitignore: add ov_*/ and *.bin (model folder is currently NOT ignored!).
+[x] .gitignore: ov_*/, *.bin, *.dot, *.svg (except examples/**), dot/coverage
+    logs, htmlcov/, .coverage, caches. Model folder removed from the index
+    (staged, not committed yet). NOTE: example SVGs must live in examples/.
 
 
 -------------------------------------------------------------------------
@@ -58,10 +67,17 @@ STEP 1 - Intermediate Graph Representation (section 3.2)
         (FIFO Kahn gives a level-by-level order).
 [~] Must handle: multiple inputs/outputs, multiple edges between same pair of
     nodes, duplicate names, dynamic shapes, missing metadata, Parameter/Result ops.
-    (supported by design, not yet covered by tests)
+    (supported by design; duplicate names + dynamic shape strings covered
+     only indirectly by pass tests)
 [x] Keep the graph valid after modifications (no dangling edges).
 [ ] Optional: a validate() method used by tests.
-[ ] Replace itertools.count with int counter (_next_node_id) when custom ids needed.
+[x] itertools.count replaced with int counters; add_node(node, node_id=None)
+    accepts an explicit id (auto ids now start at 1; counter = last used id,
+    max() keeps auto ids above manual ones).
+    [ ] duplicate id raises KeyError -> ValueError is more fitting;
+    [ ] tests for explicit id / duplicate id;
+    note: OpenVINO get_instance_id() is process-global and unstable between
+    loads, XML layer ids are not exposed by read_model - keep own ids.
 
 
 -------------------------------------------------------------------------
@@ -88,11 +104,16 @@ STEP 2 - Model Loading / Parser (section 3.1)
 STEP 3 - Transformation Pipeline (section 3.3)
 -------------------------------------------------------------------------
 [x] Abstract TransformationPass with apply(graph) -> graph
-    (options go to the constructor). [ ] add name.
+    (options go to the constructor). [ ] add name (needed by the registry).
 [ ] Pass registry: name -> class, so CLI can build passes by name and
     new passes are added just by registering them.
-[ ] Pipeline: ordered list of passes; each can be enabled/disabled and
-    configured with options; runs them in order; records per-pass timing.
+[~] Pipeline (transformation.py): named steps [(name, pass)], runs in order,
+    enable/disable by name (KeyError on unknown), ValueError on duplicate
+    names, options via pass constructors, per-pass timing (time.time()).
+    [ ] _timings is private and created only in apply() -> init in __init__
+        and expose a public `timings` (property returning a copy);
+    [ ] test for timings (keys = enabled steps, values >= 0);
+    minor: `x not in y`, -> None type hints, unused imports.
 [x] Passes operate only on the intermediate graph (no OpenVINO imports).
 [x] Passes never touch the original model (they only see the IR graph).
 [~] Decide on in-place vs copy semantics; avoid copying the whole graph per
@@ -100,16 +121,21 @@ STEP 3 - Transformation Pipeline (section 3.3)
     (decided: in-place; still to document in README)
 [x] Extra: TruncationPass(size) - keeps first N nodes of topological order
     (debug / render-performance measurements). [ ] validate size >= 0.
+    [ ] tests.
 
 
 -------------------------------------------------------------------------
 STEP 4 - Node Highlighting Pass (section 3.3.1)
 -------------------------------------------------------------------------
-[~] Accepts a list of node names (option, e.g. --highlight-names a,b).
-    (draft exists, BUT compares node.node_type instead of node.name - fix!)
-[ ] Uses name index to find all matching nodes (incl. duplicates).
+[x] Accepts a list of node names (option, e.g. --highlight-names a,b).
+    (fixed: now compares node.name; exact match, duplicates covered by tests)
+[x] Finds all matching nodes (incl. duplicates): one full scan O(N) with
+    names in a set - fine for a one-shot pass (no repeated scans).
+    Name index in Graph only if the API needs lookup by name.
+    [ ] constructor takes set[str]; nicer: Iterable[str] + set(names).
 [x] Sets visualization metadata (e.g. border_color = "red") only on matches.
-[ ] Leaves other nodes unchanged; optionally warn about names not found.
+[~] Leaves other nodes unchanged ([x] tested); [ ] optionally warn about
+    names not found.
 
 
 -------------------------------------------------------------------------
@@ -120,12 +146,13 @@ For each Constant node:
 [x] For each outgoing edge -> add attribute to consumer keyed by the consumer's
     input port index, e.g.  "[1]: fp32[1024, 768]".  (stored as HiddenInput)
 [~] If the Constant has >1 consumer edges -> append "(shared: <const_node_id>)".
-    [ ] bug: shared = out_degree > 0, must be > 1
+    [x] shared = out_degree > 1 (verified by test_constant_hiding_shared)
     [ ] add source_id to HiddenInput (needed for the marker)
 [x] Remove the Constant's edges from the visualization.
 [ ] Remove the Constant node only if no visible connections remain
     (currently removed unconditionally; skip Constant -> Result edges).
-[ ] bug: missing `continue` after "has input ports" warning.
+    Decide the desired behaviour first, then add a test.
+[x] bug fixed: `continue` after "has input ports" warning (tested).
 [x] Preserve all unrelated edges; never copy tensor values.
 [ ] (Optional option: also hide Constant -> Convert chains, common in fp16 models.)
 
@@ -140,15 +167,25 @@ STEP 6 - Graph Rendering (section 3.4)
 [~] Node label: op type, name, node id, attributes (incl. hidden-constant attrs).
     Escape special characters (record/HTML labels break on <, >, {, |, etc.).
     ([x] type/name/id/attrs + escaping verified on a tiny model;
-     [ ] hidden inputs not rendered yet)
+     [~] hidden inputs rendered, but not escaped and no line break
+         between ports)
 [x] Show port info: use HTML-like labels with port cells, or edge labels like
     "out 0 -> in 1" plus shape/dtype.
-[ ] Apply visualization metadata (red border for highlight, custom fill, etc.).
+[x] Apply visualization metadata: border via `color` (not `bordercolor` -
+    dot silently ignores unknown node attrs), penwidth=2 for all nodes.
 [x] Colors by op type with a default color for unknown types (no KeyError!).
 [x] Output a valid SVG file to the user-provided path.
-[ ] Performance: dot is fast at ~1200 nodes, very slow at ~1500 (long edges ->
-    virtual nodes, edge labels). Measure phases with `dot -v`; try mclimit,
-    remincross=false, splines=polyline, nslimit.
+[~] Performance - profiled with `dot -v` (see dev_commands.md):
+      1200 nodes: ~1.1 s total, position phase 0.94 s (6705 incl. virtual).
+      1500 nodes: ~77 s, position phase 76 s (38835 incl. virtual, Maxrank 546)
+      -> bottleneck = network simplex in dot_position, caused by long edges
+         (shared inputs: attention_mask, position_ids, beam_idx, RoPE) and
+         edge labels doubling ranks.
+      nslimit=2 alone: position 3.8 s but splines 171 s (worse);
+      splines=line alone: ~98 s; nslimit=2 + splines=line: ~4 s (~19x).
+    [ ] add a renderer option (e.g. fast=True -> nslimit=2, splines=line);
+    [ ] check visual quality of the fast layout;
+    [ ] try xlabel instead of label for edges (removes rank doubling).
 
 
 -------------------------------------------------------------------------
@@ -173,16 +210,36 @@ STEP 7 - Python API and CLI (section 3.5)
 -------------------------------------------------------------------------
 STEP 8 - Tests (section 4) - pytest
 -------------------------------------------------------------------------
-[ ] Graph IR: node/edge creation, connectivity, port indices, multiple edges
-    between same nodes, duplicate names, dynamic shapes, node removal.
-[ ] Parser: build small OpenVINO models in code (openvino.runtime.opset),
-    save to tmp_path, parse, check op types, edges, ports, shapes, dtypes;
-    error cases (missing file, bad extension, invalid XML).
-[ ] Highlight pass: only matching nodes highlighted, others untouched.
-[ ] Constant hiding: single consumer, shared constant (marker with id),
-    correct port index, unrelated edges preserved, node removed correctly.
-[ ] Pipeline: several passes in specified order, graph valid afterwards,
-    disabled passes skipped.
+Setup: [x] pytest configured in pyproject.toml (run from project root);
+       [x] pytest-cov works: pytest --cov=src --cov-report=term-missing
+       (last run: graph.py 80%, transformation.py 80%, parser/renderer 0%).
+       [ ] split tests/test_transformation.py into per-pass files.
+[~] Graph IR (tests/test_graph.py): [x] topological order property on
+    TinyLlama (skipped if model missing), [x] ValueError on cycle;
+    [ ] synthetic DAG for the order test (diamond + isolated node + parallel
+        edges) and check every node appears exactly once;
+    [ ] node/edge creation, connectivity, port indices, multiple
+    edges between same nodes, duplicate names, dynamic shapes, node removal
+    (removes all its edges), KeyError on unknown node id, topological_sort
+    (order on a small DAG + ValueError on a cycle).
+[ ] Parser: build small OpenVINO models in code (openvino.opset13),
+    save with ov.save_model(..., compress_to_fp16=False) to tmp_path, parse,
+    check op types, edges, ports, shapes, dtypes;
+    error cases (missing file, missing .bin, bad extension, invalid XML).
+[x] Highlight pass: exact name match, multiple names, duplicate names,
+    other nodes untouched.
+[~] Constant hiding: [x] correct port index + shape/dtype in HiddenInput,
+    [x] in_degree + hidden_inputs invariant, [x] constants removed,
+    [x] idempotent (double pass), [x] shared flag (single vs shared),
+    [x] constant with inputs -> warning, node kept;
+    [ ] unrelated edges preserved (add an edge not touching constants),
+    [ ] shared marker with const id (needs source_id),
+    [ ] Constant -> Result case,
+    [x] invalid test asserts hidden_inputs == {}.
+[ ] TruncationPass: keeps first N in topological order; size 0 / > len.
+[x] Pipeline (tests/test_pipeline.py): order via RecordingPass spy, all steps
+    applied, disable/enable, KeyError on unknown step, ValueError on
+    duplicate names. [ ] timings test (after making timings public).
 [ ] Renderer: SVG file exists, parses as XML, contains node labels and the
     red highlight color.
 [ ] End-to-end: small OpenVINO model -> passes -> SVG (also via CLI).
@@ -199,8 +256,10 @@ STEP 9 - Scalability & Performance (section 5)
 [ ] Avoid full graph copies per pass.
 [ ] Measure time of: (a) loading + IR construction, (b) passes, (c) rendering.
 [ ] Record node/edge counts and environment (CPU, RAM, OS, Python, versions).
-[ ] Document bottlenecks (Graphviz layout on ~5k+ nodes is the main one) and
-    ideas (subgraph rendering, collapsing, faster layout engines, splines=false).
+[~] Document bottlenecks and ideas - measurements done (see STEP 6
+    Performance and dev_commands.md), [ ] write it up in README.
+    Idea for STEP 10: duplicate high-fan-out inputs per consumer to remove
+    long edges -> measurable speedup.
 
 
 -------------------------------------------------------------------------

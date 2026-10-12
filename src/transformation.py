@@ -1,7 +1,8 @@
 from abc import ABC, abstractmethod
 from graph import Graph, HiddenInput, topological_sort
 from warnings import warn
-from typing import Any
+
+import time
 
 
 class TransformationPass(ABC):
@@ -10,8 +11,38 @@ class TransformationPass(ABC):
         pass
 
 
-# TODO: test that the degree of the vertex does not change, i.e. that
-# in_degree() + len(collapsed_inputs) = const
+class Pipeline:
+    def __init__(self, named_steps: list[tuple[str, TransformationPass]]):
+        names = [name for name, _ in named_steps]
+        if len(names) != len(set(names)):
+            raise ValueError("Duplicate step names in pipeline")
+        
+        self._named_steps = {step[0]: step[1] for step in named_steps}
+        self._disabled = {step[0]: False for step in named_steps}
+        self._timings: dict[str, float] = {}
+
+    def _check_step(self, name: str):
+        if not (name in self._named_steps):
+            raise KeyError(f"Step {name} not found")
+
+    def enable(self, name: str):
+        self._check_step(name)
+        self._disabled[name] = False
+
+    def disable(self, name: str):
+        self._check_step(name)
+        self._disabled[name] = True
+
+    def apply(self, graph: Graph) -> Graph:
+        self.timings: dict[str, float] = {}
+        for name, step in self._named_steps.items():
+            if not self._disabled[name]:
+                start = time.time()
+                graph = step.apply(graph)
+                self.timings[name] = time.time() - start
+        return graph
+
+
 class ConstantHidingPass(TransformationPass):
     def apply(self, graph: Graph) -> Graph:
         to_remove: list[int] = []
@@ -20,6 +51,7 @@ class ConstantHidingPass(TransformationPass):
                 if graph.in_degree(node_id) > 0:
                     warn(
                         f"Constant {node_id} has input ports. Skipping this node")
+                    continue
                 shared = graph.out_degree(node_id) > 1
                 for edge_id in graph.outcoming_edges(node_id):
                     edge = graph.edges[edge_id]
@@ -35,13 +67,13 @@ class ConstantHidingPass(TransformationPass):
 
 
 class HighlightingPass(TransformationPass):
-    def __init__(self, names: list[str]) -> None:
+    def __init__(self, names: set[str]) -> None:
         self.names = names
 
     def apply(self, graph: Graph) -> Graph:
-        for node_id, node in graph.nodes.items():
-            if node.node_type in self.names:
-                graph.node(node_id).meta.border_color = 'red'
+        for node in graph.nodes.values():
+            if node.name in self.names:
+                node.meta.border_color = 'red'
 
         return graph
 

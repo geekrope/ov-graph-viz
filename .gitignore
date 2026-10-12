@@ -361,6 +361,18 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+
 ov_*/
 *.bin
 /simple_graph.svg
+
+# local artifacts: graphviz sources/logs, coverage
+*.dot
+dot_log*.txt
+log_*.txt
+*.svg
+!examples/**/*.svg
+htmlcov/
+.coverage
+.pytest_cache/
+__pycache__/

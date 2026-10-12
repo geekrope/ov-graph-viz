@@ -41,15 +41,21 @@ class Graph:
         self.edges: dict[int, Edge] = {}
         self._in: dict[int, set[int]] = {}
         self._out: dict[int, set[int]] = {}
-        self._node_ids = itertools.count()
-        self._edge_ids = itertools.count()
+        self._node_ids = 0
+        self._edge_ids = 0
 
     def _check_node(self, node_id: int) -> None:
         if node_id not in self.nodes:
             raise KeyError(f"Node {node_id} not found")
 
-    def add_node(self, node: Node) -> int:
-        node_id = next(self._node_ids)
+    def add_node(self, node: Node, node_id: int | None = None) -> int:
+        if node_id is None:
+            self._node_ids += 1
+            node_id = self._node_ids
+        else:
+            if node_id in self.nodes:
+                raise KeyError(f"Node {node_id} already exists")
+            self._node_ids = max(self._node_ids, node_id)
 
         self.nodes[node_id] = node
         self._in[node_id] = set()
@@ -61,7 +67,8 @@ class Graph:
         self._check_node(edge.from_node)
         self._check_node(edge.to_node)
 
-        edge_id = next(self._edge_ids)
+        self._edge_ids += 1
+        edge_id = self._edge_ids
 
         self.edges[edge_id] = edge
         self._out[edge.from_node].add(edge_id)
@@ -103,7 +110,7 @@ class Graph:
         self._check_node(node_id)
         return len(self._out[node_id])
 
-# computes the in degree of each node. when the node is processed decreses the
+# computes the in degree of each node. when the node is processed decreases the
 # degree of its children, which ensures that by the moment the degree reaches 0
 # all the nodes connected to the current one were processed
 def topological_sort(graph: Graph) -> list[int]:
