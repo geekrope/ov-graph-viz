@@ -8,10 +8,13 @@ renders the result to SVG (Graphviz "dot", top-to-bottom). Deliver as a GitHub r
 Pipeline:  Model Loading -> Graph Construction -> Graph Transformation -> Graph Rendering
 
 Legend:  [x] done   [~] partially done / draft   [ ] not started
-Status as of 2026-10-13: 27 tests passing (+ test_renderer.py), coverage 76%
+Status as of 2026-10-14: 27 tests passing; coverage last measured 2026-10-13: 76%
 (graph 96%, parser 94%, renderer 89%, transformation 82%).
-!! Uncommitted: renderer.py (proxy copies, empty-field fix), transformation.py +
-   graph.py (ProxyPass, proxy_output), main.py, pyproject.toml, tests/test_renderer.py.
+Remaining estimate ~7-8 h: CLI polish, minimal tests (parser, graph, truncation,
+proxy), examples, README (written by Claude in the user's tone), final check.
+!! Uncommitted: main.py (CLI), transformation.py (TruncationPass offset +
+   validation), graph.py + renderer.py (HiddenInput.id, shared marker),
+   dev_commands.md (CLI command), starter_code.py deleted.
 
 
 -------------------------------------------------------------------------
@@ -66,9 +69,12 @@ STEP 1 - Intermediate Graph Representation (section 3.2)
     remove_edge, in/out edges, in/out degree;
     [ ] lookup by name; [ ] rename outcoming_edges -> outgoing_edges,
     return list copies + return type hints.
-[x] topological_sort (Kahn, iterative, raises on cycle).
-    [ ] optional: heapq by insertion index for a "deep" order
-        (FIFO Kahn gives a level-by-level order).
+[x] topological_sort: reverse Kahn from the sinks (FIFO), a node is placed
+    in front once all its consumers are placed -> exact ALAP order (sorted by
+    longest path to a sink; verified on TinyLlama). Needed by TruncationPass:
+    with forward Kahn, 356 weight Convert sources (after constant hiding)
+    pulled pieces of all 22 layers into the first N nodes; now N=1200 keeps
+    layers 0-10 + part of 11. Raises on cycle.
 [~] Must handle: multiple inputs/outputs, multiple edges between same pair of
     nodes, duplicate names, dynamic shapes, missing metadata, Parameter/Result ops.
     (supported by design; duplicate names + dynamic shape strings covered
@@ -109,8 +115,8 @@ STEP 3 - Transformation Pipeline (section 3.3)
 -------------------------------------------------------------------------
 [x] Abstract TransformationPass with apply(graph) -> graph
     (options go to the constructor). [ ] add name (needed by the registry).
-[ ] Pass registry: name -> class, so CLI can build passes by name and
-    new passes are added just by registering them.
+[x] Pass registry: PASSES dict in main.py, name -> PassInfo(factory(args),
+    description, options); a new pass = one entry.
 [~] Pipeline (transformation.py): named steps [(name, pass)], runs in order,
     enable/disable by name (KeyError on unknown), ValueError on duplicate
     names, options via pass constructors, per-pass timing (time.time()).
@@ -123,9 +129,11 @@ STEP 3 - Transformation Pipeline (section 3.3)
 [~] Decide on in-place vs copy semantics; avoid copying the whole graph per
     pass (memory requirement) - document the choice.
     (decided: in-place; still to document in README)
-[x] Extra: TruncationPass(size) - keeps first N nodes of topological order
-    (debug / render-performance measurements). [ ] validate size >= 0.
-    [ ] tests.
+[x] Extra: TruncationPass(size=-1, offset=0) - keeps the window
+    [offset, offset+size) of the ALAP order (size -1 = to the end); used for
+    debug / render-performance measurements and to view any part of the model
+    (offset 2100, size 300 -> layers 20-21 + Result).
+    [x] validation: ValueError if size < -1 or offset < 0. [ ] tests.
 
 
 -------------------------------------------------------------------------
@@ -149,9 +157,9 @@ Draft works on TinyLlama (3921/4492 -> ~2352 nodes, 0.003 s). Known bugs:
 For each Constant node:
 [x] For each outgoing edge -> add attribute to consumer keyed by the consumer's
     input port index, e.g.  "[1]: fp32[1024, 768]".  (stored as HiddenInput)
-[~] If the Constant has >1 consumer edges -> append "(shared: <const_node_id>)".
+[x] If the Constant has >1 consumer edges -> append "(shared: <const_node_id>)".
     [x] shared = out_degree > 1 (verified by test_constant_hiding_shared)
-    [ ] add source_id to HiddenInput (needed for the marker)
+    [x] HiddenInput.id = source Constant id; renderer prints "(shared: <id>)"
 [x] Remove the Constant's edges from the visualization.
 [ ] Remove the Constant node only if no visible connections remain
     (currently removed unconditionally; skip Constant -> Result edges).
@@ -206,20 +214,31 @@ STEP 6 - Graph Rendering (section 3.4)
 -------------------------------------------------------------------------
 STEP 7 - Python API and CLI (section 3.5)
 -------------------------------------------------------------------------
-[ ] Python API, e.g.:
-      graph = load_model("model.xml")
-      graph = Pipeline([HideConstantsPass(), HighlightPass(names=[...])]).run(graph)
-      render_svg(graph, "out.svg")
-    plus a one-call convenience function visualize(model, output, passes).
-[ ] CLI (argparse) built on the API:
-      python model_graph_viewer.py --model model.xml --output graph.svg
-      python model_graph_viewer.py --model model.xml --output s.svg \
-          --passes hide-constants,highlight --highlight-names "MatMul_1"
-[ ] No passes -> plain visualization.
-[ ] Passes applied in the order given; pass-specific options supported.
-[ ] --list-passes option, --timing/--verbose option.
-[ ] Clear errors + non-zero exit codes for bad args, unknown passes,
-    missing files, unsupported formats.
+[x] Python API = the classes themselves (OpenVINOParser, Pipeline + passes,
+    GraphvizRenderer); main.py shows the usage. No extra wrapper functions.
+    [ ] README: how to import (PYTHONPATH=src).
+    Package layout + [project.scripts] entry point deferred (optional,
+    ~1-1.5 h; flat src/ modules would install as top-level names).
+[~] CLI (argparse subcommands) in src/main.py:
+      python src/main.py visualize --model m.xml --output out.svg \
+          --passes hide-constants,truncate,highlight,proxy \
+          --truncate-size 300 --truncate-offset 0 --highlight-names a,b
+      python src/main.py list-passes   (description + options per pass)
+    Smoke-tested on TinyLlama (truncated to 200 nodes): exit 0, highlight
+    and proxy copies present.
+    [ ] wrap module-level code in main() + if __name__ == "__main__";
+    [ ] pass name check must run BEFORE PASSES[name] (now KeyError first);
+    [ ] truncate description: missing commas glue description + options;
+    [ ] pass renamed to "hide-constant" - decide (plan/README use -constants);
+    [ ] pipeline step names = pass names (not "0", "1") for timing output;
+    [ ] remove redundant str()/Path() conversions, explicit imports.
+[x] No passes -> plain visualization (--passes defaults to "").
+[x] Passes applied in the order given; pass-specific options supported.
+[x] list-passes subcommand. [ ] --timing (load / passes / render).
+[~] Clear errors + non-zero exit codes: [x] missing model file (vis.error);
+    [ ] unknown pass; [ ] highlight without --highlight-names;
+    [ ] wrong extension / missing .bin / OpenVINO errors -> vis.error;
+    [ ] ValueError from pass constructors -> vis.error.
 
 
 -------------------------------------------------------------------------
@@ -255,11 +274,12 @@ Setup: [x] pytest configured in pyproject.toml (run from project root);
     [x] idempotent (double pass), [x] shared flag (single vs shared),
     [x] constant with inputs -> warning, node kept;
     [ ] unrelated edges preserved (add an edge not touching constants),
-    [ ] shared marker with const id (needs source_id),
+    [ ] shared marker with const id (HiddenInput.id now exists),
     [ ] Constant -> Result case,
     [x] invalid test asserts hidden_inputs == {}.
-[ ] TruncationPass: keeps first N in topological order; size 0 / > len;
-    no dangling edges.
+[ ] TruncationPass: window size/offset on a toy graph, size -1, no dangling
+    edges, ValueError on size < -1 / offset < 0. (Invariant/ALAP tests were
+    written and removed by the user - keep it minimal.)
 [ ] ProxyPass: on sample_graph max_consumers=1 marks {"add", "weights"},
     max_consumers=2 marks nothing.
 [ ] Graph: add_node with explicit id (duplicate -> error, next auto id),

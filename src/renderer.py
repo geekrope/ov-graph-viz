@@ -2,7 +2,7 @@ import graphviz
 
 from abc import ABC, abstractmethod
 from pathlib import Path
-from graph import Edge, Graph, Node
+from graph import Edge, Graph, Node, HiddenInput
 
 NODE_FILLCOLOR_BY_TYPE = {
     "Parameter": "#EDEADE",  # Alabaster
@@ -40,12 +40,20 @@ class GraphvizRenderer(Renderer):
         shape_str = "?" if shape is None else ",".join(shape)
         return f"{dtype_str}[{shape_str}]"
 
+    def _hidden_input_label(self, port: int, hidden: HiddenInput) -> str:
+        label = f"[{port}]: {self._format_tensor(hidden.shape, hidden.dtype)}"
+        if hidden.shared:
+            label += f" (shared: \\<{hidden.id}\\>)"
+        return label
+
     def _node_label(self, node_id: int, node: Node) -> str:
         nl = self.NEW_LINE
         header = self._escape(node.node_type)
         info = f"name: {self._escape(node.name)}{nl}id: {node_id}{nl}"
         hidden_ports = "".join(
-            f"[{k}]: {self._format_tensor(v.shape, v.dtype)}" for k, v in node.meta.hidden_inputs.items())
+            self._hidden_input_label(k, v)
+            for k, v in node.meta.hidden_inputs.items()
+        )
         attrs = "".join(
             f"{self._escape(k)}: {self._escape(v)}{nl}" for k, v in node.attributes.items())
         if attrs and hidden_ports:

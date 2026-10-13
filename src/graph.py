@@ -19,6 +19,7 @@ class HiddenInput:
     shape: tuple[str, ...] | None = None
     dtype: str | None = None
     shared: bool = False
+    id: int | None = None
 
 
 @dataclass
@@ -112,41 +113,8 @@ class Graph:
         return len(self._out[node_id])
 
 
-# longest path from a source to each node (forward Kahn). raises on a cycle
-def _depths(graph: Graph) -> dict[int, int]:
-    depths: dict[int, int] = {}
-    to_process: deque[int] = deque()
-    in_degrees: dict[int, int] = {}
-
-    for node_id in graph.nodes.keys():
-        in_degrees[node_id] = graph.in_degree(node_id)
-        if in_degrees[node_id] == 0:
-            to_process.append(node_id)
-
-    while len(to_process) > 0:
-        top = to_process.popleft()
-        depths[top] = max((depths[graph.edges[e].from_node] + 1
-                           for e in graph.incoming_edges(top)), default=0)
-        for edge_id in graph.outcoming_edges(top):
-            edge = graph.edges[edge_id]
-            in_degrees[edge.to_node] -= 1
-            if in_degrees[edge.to_node] == 0:
-                to_process.append(edge.to_node)
-
-    if len(depths) != len(graph.nodes):
-        raise ValueError(
-            f"Graph contains a cycle: sorted {len(depths)} of {len(graph.nodes)} nodes")
-
-    return depths
-
-
-# as-late-as-possible order: goes backwards from the sinks and places a node
-# only after all of its consumers are placed. LIFO makes it a DFS, so each
-# branch is laid out right before its first consumer. Parents are pushed
-# deepest first, so short branches (weights) are popped first and end up next
-# to the consumer, while the main path is laid out to the left of them
+# modified Kahn algorithm, tracks out degree instead of in degree to make the ALAP order
 def topological_sort(graph: Graph) -> list[int]:
-    depths = _depths(graph)
     order: deque[int] = deque()
     to_process: deque[int] = deque()
     out_degrees: dict[int, int] = {}
@@ -157,12 +125,16 @@ def topological_sort(graph: Graph) -> list[int]:
             to_process.append(node_id)
 
     while len(to_process) > 0:
-        top = to_process.pop()
+        top = to_process.popleft()
         order.appendleft(top)
-        parents = [graph.edges[e].from_node for e in graph.incoming_edges(top)]
-        for parent in sorted(parents, key=lambda p: -depths[p]):
-            out_degrees[parent] -= 1
-            if out_degrees[parent] == 0:
-                to_process.append(parent)
+        for edge_id in graph.incoming_edges(top):
+            edge = graph.edges[edge_id]
+            out_degrees[edge.from_node] -= 1
+            if out_degrees[edge.from_node] == 0:
+                to_process.append(edge.from_node)
+
+    if len(order) != len(graph.nodes):
+        raise ValueError(
+            f"Graph contains a cycle: sorted {len(order)} of {len(graph.nodes)} nodes")
 
     return list(order)

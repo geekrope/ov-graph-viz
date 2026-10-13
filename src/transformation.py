@@ -19,7 +19,7 @@ class Pipeline:
 
         self._named_steps = {step[0]: step[1] for step in named_steps}
         self._disabled = {step[0]: False for step in named_steps}
-        self._timings: dict[str, float] = {}
+        self.timings: dict[str, float] = {}
 
     def _check_step(self, name: str):
         if not (name in self._named_steps):
@@ -57,7 +57,7 @@ class ConstantHidingPass(TransformationPass):
                     edge = graph.edges[edge_id]
                     to = graph.node(edge.to_node)
                     to.meta.hidden_inputs[edge.to_port] = HiddenInput(
-                        edge.shape, edge.dtype, shared)
+                        edge.shape, edge.dtype, shared, node_id)
                 to_remove.append(node_id)
 
         for node_id in to_remove:
@@ -79,12 +79,19 @@ class HighlightingPass(TransformationPass):
 
 
 class TruncationPass(TransformationPass):
-    def __init__(self, size: int) -> None:
+    def __init__(self, size: int = -1, offset: int = 0) -> None:
+        if size < -1 or offset < 0:
+            raise ValueError("size must be >= -1 and offset >= 0")
         self.size = size
+        self.offset = offset
 
     def apply(self, graph: Graph) -> Graph:
         top_order = topological_sort(graph)
-        to_remove = top_order[self.size:]
+        # keep the window [offset, offset + size) of the topological order
+        if self.size != -1:
+            to_remove = top_order[:self.offset] + top_order[self.offset + self.size:]
+        else:
+            to_remove = top_order[:self.offset]
         for node_id in to_remove:
             graph.remove_node(node_id)
 
@@ -93,11 +100,11 @@ class TruncationPass(TransformationPass):
 
 class ProxyPass(TransformationPass):
     """
-    Localizes each connection by making separate copies of shared nodes, that have more than max_consumers successors. 
+    Localizes each connection by making separate copies of shared nodes, that have more than max_consumers successors.
     Improves readability by eliminating the need to trace back a long edge.
     """
 
-    def __init__(self, max_consumers = 1) -> None:
+    def __init__(self, max_consumers=2) -> None:
         self.max_consumers = max_consumers
         pass
 

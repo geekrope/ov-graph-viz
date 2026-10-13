@@ -80,3 +80,11 @@ Same model, Truncation(1500): 1500 nodes / 1569 edges, Maxrank 546,
 | -Gnslimit=2 -Gsplines=polyline| 3.98 s   | > 150 s (killed)| > 150 s|
 | -Gsplines=line                | 96.69 s  | 0.03 s         | ~98 s   |
 | -Gnslimit=2 -Gsplines=line    | 2.77 s   | 0.03 s         | ~4 s    |
+
+## CLI
+
+For quick look at the graph visualizaition use the following CLI command:
+
+```
+python src/main.py visualize --model ov_TinyLlama_v1_1\openvino_model.xml --output simple_graph.svg --passes proxy --max-consumers 3
+```
