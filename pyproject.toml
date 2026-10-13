@@ -1,3 +1,6 @@
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
+
+[tool.autopep8]
+max_line_length = 100

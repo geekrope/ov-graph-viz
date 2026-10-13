@@ -52,8 +52,10 @@ class GraphvizRenderer(Renderer):
             return f"{{{header}|{info}|{attrs}|{hidden_ports}}}"
         elif attrs:
             return f"{{{header}|{info}|{attrs}}}"
-        else:
+        elif hidden_ports:
             return f"{{{header}|{info}|{hidden_ports}}}"
+        else:
+            return f"{{{header}|{info}}}"
 
     def _edge_label(self, edge: Edge) -> str:
         tensor = self._format_tensor(edge.shape, edge.dtype)
@@ -64,6 +66,8 @@ class GraphvizRenderer(Renderer):
 
         dg.graph_attr["rankdir"] = "TB"
         dg.graph_attr["ranksep"] = "0.2"
+        dg.graph_attr["group"] = "main"
+
         dg.node_attr["style"] = "rounded,filled"
         dg.node_attr["shape"] = "record"
         dg.node_attr["fontsize"] = "10"
@@ -76,7 +80,8 @@ class GraphvizRenderer(Renderer):
         dg.edge_attr["fontname"] = "Tahoma"
 
         # acceleration
-        # dg.graph_attr["splines"] = "polyline"
+        # dg.graph_attr["splines"] = "line"
+        # dg.graph_attr["nslimit"] = "2"
 
         for node_id, node in graph.nodes.items():
             dg.node(
@@ -89,9 +94,27 @@ class GraphvizRenderer(Renderer):
             )
 
         for edge in graph.edges.values():
-            dg.edge(str(edge.from_node), str(edge.to_node),
-                    label=self._edge_label(edge))
-            
+            src_node = graph.node(edge.from_node)
+            src_id = edge.from_node
+            dst_id = edge.to_node
+            if src_node.meta.proxy_output:
+                # node is created for the specific input
+                name = f"{str(edge.from_node)}_{edge.to_node}_{edge.to_port}"
+                dg.node(
+                    name,
+                    label=self._node_label(src_id, src_node),
+                    fillcolor=NODE_FILLCOLOR_BY_TYPE.get(
+                        src_node.node_type, DEFAULT_FILLCOLOR),
+                    color=src_node.meta.border_color or "black",
+                    style="rounded,filled,dashed",
+                    id=f"node{name}",
+                )
+                dg.edge(name, str(dst_id),
+                        label=self._edge_label(edge))
+            else:
+                dg.edge(str(src_id), str(dst_id),
+                        label=self._edge_label(edge))
+
         return dg
 
     def render(self, graph: Graph, path: Path) -> None:

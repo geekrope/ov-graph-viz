@@ -16,7 +16,7 @@ class Pipeline:
         names = [name for name, _ in named_steps]
         if len(names) != len(set(names)):
             raise ValueError("Duplicate step names in pipeline")
-        
+
         self._named_steps = {step[0]: step[1] for step in named_steps}
         self._disabled = {step[0]: False for step in named_steps}
         self._timings: dict[str, float] = {}
@@ -87,5 +87,25 @@ class TruncationPass(TransformationPass):
         to_remove = top_order[self.size:]
         for node_id in to_remove:
             graph.remove_node(node_id)
+
+        return graph
+
+
+class ProxyPass(TransformationPass):
+    """
+    Localizes each connection by making separate copies of shared nodes, that have more than max_consumers successors. 
+    Improves readability by eliminating the need to trace back a long edge.
+    """
+
+    def __init__(self, max_consumers = 1) -> None:
+        self.max_consumers = max_consumers
+        pass
+
+    def apply(self, graph: Graph) -> Graph:
+        for node_id, node in graph.nodes.items():
+            succ = {graph.edges[edge_id].to_node for edge_id in graph.outcoming_edges(node_id)}
+
+            if len(succ) > self.max_consumers:
+                node.meta.proxy_output = True
 
         return graph

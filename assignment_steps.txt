@@ -8,9 +8,10 @@ renders the result to SVG (Graphviz "dot", top-to-bottom). Deliver as a GitHub r
 Pipeline:  Model Loading -> Graph Construction -> Graph Transformation -> Graph Rendering
 
 Legend:  [x] done   [~] partially done / draft   [ ] not started
-Status as of 2026-10-12 (late evening): ~6-7 h of estimate done, ~10-14 h remaining
-(+ optional pass). 17 tests passing (test_transformation, test_pipeline, test_graph).
-!! Nothing from 2026-10-12 is committed yet - commit first thing next session.
+Status as of 2026-10-13: 27 tests passing (+ test_renderer.py), coverage 76%
+(graph 96%, parser 94%, renderer 89%, transformation 82%).
+!! Uncommitted: renderer.py (proxy copies, empty-field fix), transformation.py +
+   graph.py (ProxyPass, proxy_output), main.py, pyproject.toml, tests/test_renderer.py.
 
 
 -------------------------------------------------------------------------
@@ -37,7 +38,10 @@ STEP 0 - Environment & repository setup
     (installed locally; not yet listed in a requirements file)
 [~] Add requirements.txt / pyproject.toml.
     ([x] pyproject.toml with pytest config: pythonpath=src, testpaths=tests;
-     [ ] dependencies; [ ] coverage config: omit main.py/starter_code.py,
+     [x] [tool.autopep8] max_line_length = 100 (VS Code runs autopep8
+         --aggressive, which split every argument of 80+ char lines;
+         verify the extension picks it up on save);
+     [ ] dependencies (now also networkx + pydot for tests); [ ] coverage config: omit main.py/starter_code.py,
      exclude @abstractmethod)
 [x] dev_commands.md: test / coverage / Graphviz profiling commands.
 [x] Run starter_code.py to confirm Graphviz works (already produced simple_graph.svg).
@@ -161,14 +165,24 @@ For each Constant node:
 STEP 6 - Graph Rendering (section 3.4)
 -------------------------------------------------------------------------
 [~] Abstract Renderer interface; Graphviz implementation (build on starter_code.py).
-    ([x] GraphvizRenderer draft in renderer.py; [ ] Renderer(ABC) was removed -
-     bring it back)
+    ([x] GraphvizRenderer in renderer.py; [x] Renderer(ABC) is back;
+     [x] build() returns the Digraph separately from render() - used by tests)
 [x] rankdir=TB (top-to-bottom), dot layout.
 [~] Node label: op type, name, node id, attributes (incl. hidden-constant attrs).
     Escape special characters (record/HTML labels break on <, >, {, |, etc.).
     ([x] type/name/id/attrs + escaping verified on a tiny model;
      [~] hidden inputs rendered, but not escaped and no line break
-         between ports)
+         between ports ("[0]: f32[3][1]: i64[]");
+     [x] no empty trailing field when a node has neither attrs nor hidden inputs;
+     [ ] _format_tensor: shape None (dynamic rank) and ("?",) both give
+         "f32[?]" - ambiguous; e.g. use "f32[...]" for unknown rank;
+     [ ] split the >100 char hidden_ports line before autopep8 mangles it)
+[~] Proxy copies (ProxyPass, see STEP 10): for a node with proxy_output the
+    renderer draws a dashed copy per input, DOT name / SVG id
+    "{src}_{dst}_{dst_port}" (unique: every input has one source); the
+    original keeps its inputs but has no drawn outputs.
+    [ ] extract the duplicated dg.node(...) call into _add_node();
+    [ ] optional: shorter label for copies ("copy of id N").
 [x] Show port info: use HTML-like labels with port cells, or edge labels like
     "out 0 -> in 1" plus shape/dtype.
 [x] Apply visualization metadata: border via `color` (not `bordercolor` -
@@ -183,7 +197,8 @@ STEP 6 - Graph Rendering (section 3.4)
          edge labels doubling ranks.
       nslimit=2 alone: position 3.8 s but splines 171 s (worse);
       splines=line alone: ~98 s; nslimit=2 + splines=line: ~4 s (~19x).
-    [ ] add a renderer option (e.g. fast=True -> nslimit=2, splines=line);
+    [~] nslimit=2 + splines=line now always on in build();
+        [ ] make it a renderer option (e.g. fast=True);
     [ ] check visual quality of the fast layout;
     [ ] try xlabel instead of label for edges (removes rank doubling).
 
@@ -212,7 +227,10 @@ STEP 8 - Tests (section 4) - pytest
 -------------------------------------------------------------------------
 Setup: [x] pytest configured in pyproject.toml (run from project root);
        [x] pytest-cov works: pytest --cov=src --cov-report=term-missing
-       (last run: graph.py 80%, transformation.py 80%, parser/renderer 0%).
+       (last run 2026-10-13: total 76%; graph 96%, parser 94%, renderer 89%,
+        transformation 82%; main.py/starter_code.py 0% -> add to omit).
+       Coverage != assertions: parser lines are executed only via the
+       TinyLlama topological-sort test.
        [ ] split tests/test_transformation.py into per-pass files.
 [~] Graph IR (tests/test_graph.py): [x] topological order property on
     TinyLlama (skipped if model missing), [x] ValueError on cycle;
@@ -226,6 +244,10 @@ Setup: [x] pytest configured in pyproject.toml (run from project root);
     save with ov.save_model(..., compress_to_fp16=False) to tmp_path, parse,
     check op types, edges, ports, shapes, dtypes;
     error cases (missing file, missing .bin, bad extension, invalid XML).
+    Prototype checked: x[1,-1,4] -> ("1","?","4"); Dimension(1,8) -> ("1..8",);
+    PartialShape.dynamic() + Type.dynamic -> (None, None) (covers parser.py:23).
+    Without compress_to_fp16=False an extra Constant(f16)->Convert appears.
+    Result names are auto-generated -> look edges up by source name.
 [x] Highlight pass: exact name match, multiple names, duplicate names,
     other nodes untouched.
 [~] Constant hiding: [x] correct port index + shape/dtype in HiddenInput,
@@ -236,12 +258,31 @@ Setup: [x] pytest configured in pyproject.toml (run from project root);
     [ ] shared marker with const id (needs source_id),
     [ ] Constant -> Result case,
     [x] invalid test asserts hidden_inputs == {}.
-[ ] TruncationPass: keeps first N in topological order; size 0 / > len.
+[ ] TruncationPass: keeps first N in topological order; size 0 / > len;
+    no dangling edges.
+[ ] ProxyPass: on sample_graph max_consumers=1 marks {"add", "weights"},
+    max_consumers=2 marks nothing.
+[ ] Graph: add_node with explicit id (duplicate -> error, next auto id),
+    _check_node KeyError on unknown id.
 [x] Pipeline (tests/test_pipeline.py): order via RecordingPass spy, all steps
     applied, disable/enable, KeyError on unknown step, ValueError on
     duplicate names. [ ] timings test (after making timings public).
-[ ] Renderer: SVG file exists, parses as XML, contains node labels and the
-    red highlight color.
+[~] Renderer (tests/test_renderer.py): build() -> dg.source ->
+    pydot.graph_from_dot_data -> nx.nx_pydot.from_pydot (in memory: read_dot
+    on a temp file decodes UTF-8 as cp1251 and garbles "->" arrows;
+    from_pydot is typed nx.Graph -> isinstance(MultiDiGraph) assert).
+    sample_graph fixture: 9 nodes, shared const, scalar const, fan-out,
+    edge without shape/dtype; ids keyed by node name.
+    [x] node set + node type + in/out degree (plain and after const hiding);
+    [x] border colors after HighlightingPass;
+    [x] _format_tensor parametrized table;
+    [x] hidden ports: in_degree + count(r"\[(\d+)\]: ") == original in_degree
+        (r"\[[0-9]*\]" is wrong: matches "[]" of scalars and 1-D shapes);
+    [ ] edge labels: parse "out p -> in q\n dtype[shape]" back, compare
+        Counter((src, dst, ports, dtype, shape)) with graph.edges;
+    [ ] proxy rendering: copies dashed, in_degree 0, one per (dst, port);
+    [ ] optional smoke test of render(): .dot + non-empty SVG in tmp_path.
+    Decided: no tests comparing node labels to the same f-string (tautological).
 [ ] End-to-end: small OpenVINO model -> passes -> SVG (also via CLI).
 [ ] Use synthetic graphs to test passes independently of parser/renderer.
 
@@ -275,7 +316,21 @@ STEP 10 - (OPTIONAL) Custom Visualization Improvement Pass (section 3.3.3)
 [ ] Ideas: collapse repeated decoder layers / known patterns (RMSNorm, RoPE,
     attention block) into a single node; hide Convert/ShapeOf/Reshape helper
     chains; group ops into clusters per layer.
-[ ] Implement as a registered pass, add tests.
+[~] Implemented: ProxyPass(max_consumers=1) in transformation.py - marks
+    nodes with more than max_consumers distinct consumers (meta.proxy_output);
+    the renderer draws a dashed copy next to each consumer instead of long
+    edges (see STEP 6). main.py uses ProxyPass(3); disabling via Pipeline works.
+    TinyLlama after const hiding, threshold 3: 7 nodes marked (Parameter,
+    Unsqueeze x2, Gather, Multiply, Concat, Select - shared attention inputs).
+    Approximate rank layout (not real dot): depth ~811 -> ~798 ranks,
+    median width ~180 -> ~103. The graph now looks like a long narrow column:
+    that is the real depth (22 layers x ~35 ops), not a bug.
+    Remaining long edges: weight decompression chains (.../fq_weights_1/convert)
+    -> WeightDecompressionFoldingPass would cut width further (unverified).
+    [ ] remove leftover `pass` in __init__, docstring says "making copies"
+        but the pass only marks; check default max_consumers=1 on TinyLlama;
+    [ ] measure real dot time / look with and without the pass;
+    [ ] add to pass registry, tests (STEP 8).
 [ ] Produce before/after SVGs and explain the improvement in README.
 
 
