@@ -18,7 +18,7 @@ class PassInfo:
 
 
 PASSES: dict[str, PassInfo] = {
-    "hide-constant": PassInfo(
+    "hide-constants": PassInfo(
         lambda args: ConstantHidingPass(),
         "Removes Constant nodes and shows their shape/dtype inside the consumer "
         "node as [port]: dtype[shape]. Use to declutter weights and scalars."),
@@ -72,23 +72,28 @@ def visualize(parser: argparse.ArgumentParser, args: argparse.Namespace):
     return graph, pipeline
 
 
-parser = argparse.ArgumentParser(description="Visualize an OpenVINO model graph")
-sub = parser.add_subparsers(dest="command", required=True)
+def main(argv: list[str] | None = None):
+    parser = argparse.ArgumentParser(description="Visualize an OpenVINO model graph")
+    sub = parser.add_subparsers(dest="command", required=True)
 
-vis = sub.add_parser("visualize", help="render model graph to SVG")
-vis.add_argument("--model", type=Path, required=True)
-vis.add_argument("--output", type=Path, default=Path("simple_graph.svg"))
-vis.add_argument("--passes", default="")
-vis.add_argument("--highlight-names", default="")
-vis.add_argument("--truncate-size", type=int, default=-1)
-vis.add_argument("--truncate-offset", type=int, default=0)
-vis.add_argument("--max-consumers", type=int, default=3)
+    vis = sub.add_parser("visualize", help="render model graph to SVG")
+    vis.add_argument("--model", type=Path, required=True)
+    vis.add_argument("--output", type=Path, default=Path("simple_graph.svg"))
+    vis.add_argument("--passes", default="")
+    vis.add_argument("--highlight-names", default="")
+    vis.add_argument("--truncate-size", type=int, default=-1)
+    vis.add_argument("--truncate-offset", type=int, default=0)
+    vis.add_argument("--max-consumers", type=int, default=3)
 
-sub.add_parser("list-passes", help="show available passes")
+    sub.add_parser("list-passes", help="show available passes")
 
-args = parser.parse_args()
+    args = parser.parse_args(argv)
 
-if args.command == "list-passes":
-    list_passes()
-elif args.command == "visualize":
-    visualize(parser, args)
+    if args.command == "list-passes":
+        list_passes()
+    elif args.command == "visualize":
+        visualize(parser, args)
+
+
+if __name__ == "__main__":
+    main()
