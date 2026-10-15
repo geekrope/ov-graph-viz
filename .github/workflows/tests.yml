@@ -1,0 +1,28 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install Graphviz binaries
+        run: sudo apt-get update && sudo apt-get install -y graphviz
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install openvino==2026.2.0 graphviz==0.21 networkx==3.4.2 \
+            pydot==3.0.4 pandas==2.3.3 numpy==2.2.6 pytest==8.4.2 pytest-cov==7.1.0
+
+      # TinyLlama is not committed, so the tests that need it are skipped
+      - name: Run tests
+        run: pytest --cov=src --cov-report=term-missing

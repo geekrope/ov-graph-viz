@@ -1,5 +1,6 @@
-from graph import Graph, Node, Edge
-from transformation import ConstantHidingPass, HighlightingPass
+from graph import Graph, Node, Edge, NodeMetadata
+from transformation import ConstantHidingPass, HighlightingPass, TruncationPass
+from conftest import tiny_llama_graph, MODEL
 
 import copy
 import pytest
@@ -86,10 +87,11 @@ def test_constant_hiding_double_pass(hidden_graph):
 
 
 def test_constant_hiding_shared(shared_const_graph):
-    graph, _, _, matmul1, matmul2 = shared_const_graph
+    graph, const_shared, _, matmul1, matmul2 = shared_const_graph
 
     assert graph.node(matmul1).meta.hidden_inputs[0].shared
     assert graph.node(matmul2).meta.hidden_inputs[0].shared
+    assert graph.node(matmul2).meta.hidden_inputs[0].id == const_shared
     assert not graph.node(matmul2).meta.hidden_inputs[1].shared
 
 
@@ -136,7 +138,7 @@ def test_highlighting_exact_name_match(node_name_inclusion_graph):
     HighlightingPass({"const"}).apply(graph)
 
     assert graph.node(const).meta.border_color == "red"
-    assert graph.node(const_1).meta.border_color is None
+    assert graph.node(const_1).meta == NodeMetadata()
 
 
 def test_highlighting_multiple(node_name_inclusion_graph):
@@ -146,7 +148,7 @@ def test_highlighting_multiple(node_name_inclusion_graph):
 
     assert graph.node(const).meta.border_color == "red"
     assert graph.node(const_1).meta.border_color == "red"
-    assert graph.node(matmul).meta.border_color is None
+    assert graph.node(matmul).meta == NodeMetadata()
 
 
 def test_highlighting_repeated(node_name_repeated_graph):
@@ -156,4 +158,18 @@ def test_highlighting_repeated(node_name_repeated_graph):
 
     assert graph.node(const).meta.border_color == "red"
     assert graph.node(const_dupl).meta.border_color == "red"
-    assert graph.node(matmul).meta.border_color is None
+    assert graph.node(matmul).meta == NodeMetadata()
+
+
+@pytest.mark.parametrize("offset, size", [
+    (0, -1),
+    (300, -1),
+    (300, 800),
+])
+@pytest.mark.skipif(not MODEL.exists(), reason="TinyLlama not downloaded")
+def test_truncation_pass_count(offset, size, tiny_llama_graph):
+    count = len(tiny_llama_graph.nodes) - offset if size == -1 else size
+    graph = TruncationPass(size, offset).apply(copy.deepcopy(tiny_llama_graph))
+    actual_count = len([node for node in graph.nodes.values() if node.meta == NodeMetadata()])
+
+    assert count == actual_count

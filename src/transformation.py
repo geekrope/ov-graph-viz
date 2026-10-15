@@ -87,13 +87,28 @@ class TruncationPass(TransformationPass):
 
     def apply(self, graph: Graph) -> Graph:
         top_order = topological_sort(graph)
+        all_nodes = set(top_order)
         # keep the window [offset, offset + size) of the topological order
         if self.size != -1:
-            to_remove = top_order[:self.offset] + top_order[self.offset + self.size:]
+            to_remove = set(top_order[:self.offset] + top_order[self.offset + self.size:])
         else:
-            to_remove = top_order[:self.offset]
-        for node_id in to_remove:
+            to_remove = set(top_order[:self.offset])
+
+        nodes_left = all_nodes.difference(to_remove)
+        boundary_nodes = set()
+        for node in nodes_left:
+            boundary_nodes |= {
+                graph.edges[edge_id].from_node for edge_id in graph.incoming_edges(node)}
+            boundary_nodes |= {
+                graph.edges[edge_id].to_node for edge_id in graph.outcoming_edges(node)}
+
+        boundary_nodes = boundary_nodes.difference(nodes_left)
+
+        for node_id in to_remove.difference(boundary_nodes):
             graph.remove_node(node_id)
+
+        for node_id in boundary_nodes:
+            graph.node(node_id).meta.style += ',dashed'
 
         return graph
 

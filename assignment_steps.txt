@@ -1,7 +1,7 @@
 MODEL GRAPH VISUALIZATION - REMAINING WORK
 ==========================================
 OpenVINO model -> Graph IR -> passes -> Graphviz SVG. Deadline ~2026-10-26.
-Status 2026-10-14: 38 tests pass, coverage 97%. Remaining ~6 h.
+Status 2026-10-16: 42 tests pass, coverage 98%.
 
 
 TODO
@@ -9,20 +9,36 @@ TODO
 [ ] CLI errors -> parser.error (exit 2): wrong extension, missing .bin,
     OpenVINO read errors, ValueError from pass constructors,
     highlight without --highlight-names.
-[ ] Tests:
-    - synthetic DAG (diamond + parallel edge) for topological_sort
-      (TinyLlama tests are skipped without the model);
-    - parser: split -> from_port 0/1 + parallel edges; dynamic rank -> None;
-    - TruncationPass on a toy graph: window, size -1, ValueError;
-    - ProxyPass: which nodes get marked for max_consumers 1 / 2;
-    - constant hiding: unrelated edges kept, shared marker with const id.
-[ ] Examples: 3 models incl. TinyLlama; SVGs without passes vs with passes;
+[ ] Tests still missing (section 4 checklist):
+    - output ports: no test with from_port != 0;
+    - parser: dynamic dim -> "?", dynamic rank -> None. One parser test
+      with Split (from_port 0/1) + dynamic Parameter covers this and the
+      item above;
+    - pipeline: real passes in sequence -> graph still valid (no dangling
+      edges);
+    - valid SVG: CLI e2e only checks "<svg" substring; parse with
+      xml.etree and check the root tag;
+    - optional: TruncationPass boundary nodes are dashed (the count test
+      only excludes them); synthetic DAG for topological_sort (TinyLlama
+      tests are skipped without the model).
+    Done: constant hiding (shared id, unrelated edges), highlighting
+    (others keep default meta), pipeline order, proxy rendering on a
+    synthetic graph (incl. parallel edges and 1-consumer/many-edges case),
+    TruncationPass count on TinyLlama (on a deepcopy of the session graph).
+[ ] Examples: 3 models incl. TinyLlama (assignment prefers fp16 export,
+    ours is int8); SVGs without passes vs with passes;
     script to download/export models (models are not committed).
 [ ] Performance: time of load+IR / passes / render, node+edge counts,
     environment (CPU, RAM, OS, Python, versions).
+    Idea: plot render time vs truncation size (TruncationPass sweep),
+    ideally with proxy on/off; also log the number of virtual nodes
+    (dot -v) to show they drive the time, not the node count.
+    CLI: `--timing` prints the stage timing table (parsing, passes,
+    rendering). Passes show up as "0", "1"... (Pipeline names = str(i)).
 [ ] pyproject: dependencies (openvino, graphviz, pytest, pytest-cov,
     networkx, pydot); coverage omit for abstract methods.
-[ ] README: getting started (incl. Graphviz binaries), CLI + Python API
+[ ] README: done - model export (optimum-cli) + which tests need the model.
+    Left: getting started (incl. Graphviz binaries), CLI + Python API
     usage, architecture + design decisions, adding a pass / a format,
     tests, performance, limitations.
 [ ] Fresh clone -> install -> tests -> SVGs; push to GitHub; mock defense.
@@ -31,12 +47,17 @@ Decide
 ------
 - Constant -> Result: remove the Constant or keep it.
 - Renderer speed-up (splines=line + nslimit=2) is commented out:
-  option, always on, or drop.
+  option, always on, or drop. Old timings were measured with the buggy
+  sort and are deleted - re-measure first.
 
 Optional
 --------
 - Parser registry by extension; name -> ids index; rename outcoming_edges.
 - Hide Constant -> Convert chains; WeightDecompressionFoldingPass.
+- visualize --segment N: split the order into chunks of N nodes, one SVG
+  per chunk. Open question: edges crossing a chunk border (no proxy nodes
+  wanted). Idea: show them like hidden constants, "[port]: from #id".
+  Each chunk needs its own graph (copy or re-parse) - Truncation is in place.
 - Collapse known patterns (RMSNorm, RoPE, attention) - decided not to do.
 
 
@@ -50,11 +71,10 @@ FACTS FOR README
   to a sink (height never increases along the order). With forward Kahn the
   356 weight Convert sources pulled parts of all 22 layers into the first
   N nodes; now N=1200 keeps layers 0-10.
-- Passes work in place on the IR (no graph copies).
-- dot profiling: 1200 nodes ~1.1 s; 1500 nodes ~77 s (network simplex in
-  position phase; long edges from shared inputs + edge labels double ranks).
-  nslimit=2 + splines=line: ~4 s (~19x). nslimit alone or splines alone
-  do not help.
+- Passes work in place on the IR (no graph copies). Tests that run a
+  pass on the session-scoped tiny_llama_graph must deepcopy it.
+- TruncationPass keeps the window plus its boundary (direct preds/succs
+  outside the window), boundary nodes are drawn dashed.
 - ProxyPass on TinyLlama (threshold 3): 7 nodes marked (shared attention
   inputs); depth ~811 -> ~798 ranks, median width ~180 -> ~103.
 - Parser tests save with compress_to_fp16=False, otherwise save_model

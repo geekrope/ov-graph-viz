@@ -35,7 +35,6 @@ class OpenVINOParser(ModelParser):
     def load_model(self, path: Path) -> ov.Model:
         return ov.Core().read_model(path.absolute())
 
-    # TODO: think if topological sort can do the job in one pass
     def parse(self, path: Path) -> Graph:
         model = self.load_model(path)
         graph = Graph()

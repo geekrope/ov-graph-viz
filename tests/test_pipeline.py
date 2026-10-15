@@ -1,4 +1,4 @@
-from graph import Graph, Node
+from graph import Graph, Node, NodeMetadata
 from transformation import HighlightingPass, Pipeline, TransformationPass
 
 import pytest
@@ -46,7 +46,7 @@ def test_pipeline_applies_all_steps():
 
     assert graph.node(x).meta.border_color == "red"
     assert graph.node(y).meta.border_color == "red"
-    assert graph.node(z).meta.border_color is None
+    assert graph.node(z).meta == NodeMetadata()
 
 
 def test_pipeline_disable(recording_pipeline):

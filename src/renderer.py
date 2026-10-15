@@ -69,14 +69,13 @@ class GraphvizRenderer(Renderer):
         tensor = self._format_tensor(edge.shape, edge.dtype)
         return f"out {edge.from_port} → in {edge.to_port}\n{tensor}"
 
-    def build(self, graph: Graph) -> graphviz.Digraph:
+    def _configure_graph(self) -> graphviz.Digraph:
         dg = graphviz.Digraph(format="svg")
 
         dg.graph_attr["rankdir"] = "TB"
         dg.graph_attr["ranksep"] = "0.2"
         dg.graph_attr["group"] = "main"
 
-        dg.node_attr["style"] = "rounded,filled"
         dg.node_attr["shape"] = "record"
         dg.node_attr["fontsize"] = "10"
         dg.node_attr["fontname"] = "Tahoma"
@@ -90,14 +89,20 @@ class GraphvizRenderer(Renderer):
         # acceleration
         # dg.graph_attr["splines"] = "line"
         # dg.graph_attr["nslimit"] = "2"
+        return dg
+
+    def build(self, graph: Graph) -> graphviz.Digraph:
+        dg = self._configure_graph()
 
         for node_id, node in graph.nodes.items():
+            fill_color = NODE_FILLCOLOR_BY_TYPE.get(
+                node.node_type, DEFAULT_FILLCOLOR)
             dg.node(
                 str(node_id),
                 label=self._node_label(node_id, node),
-                fillcolor=NODE_FILLCOLOR_BY_TYPE.get(
-                    node.node_type, DEFAULT_FILLCOLOR),
-                color=node.meta.border_color or "black",
+                fillcolor=fill_color,
+                color=node.meta.border_color,
+                style=node.meta.style,
                 id=f"node{node_id}",
             )
 
@@ -108,12 +113,13 @@ class GraphvizRenderer(Renderer):
             if src_node.meta.proxy_output:
                 # node is created for the specific input
                 name = f"{str(edge.from_node)}_{edge.to_node}_{edge.to_port}"
+                fill_color = NODE_FILLCOLOR_BY_TYPE.get(
+                    src_node.node_type, DEFAULT_FILLCOLOR)
                 dg.node(
                     name,
                     label=self._node_label(src_id, src_node),
-                    fillcolor=NODE_FILLCOLOR_BY_TYPE.get(
-                        src_node.node_type, DEFAULT_FILLCOLOR),
-                    color=src_node.meta.border_color or "black",
+                    fillcolor=fill_color,
+                    color=src_node.meta.border_color,
                     style="rounded,filled,dashed",
                     id=f"node{name}",
                 )

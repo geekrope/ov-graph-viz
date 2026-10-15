@@ -21,9 +21,10 @@ def test_unknown_pass(tiny_model_path):
     assert e.value.code == 2
 
 
+# TODO end to end with tiny ollama and truncation pass or proxy
 def test_visualize_end_to_end(tiny_model_path, tmp_path):
     out = tmp_path / "graph.svg"
     main(["visualize", "--model", str(tiny_model_path), "--output", str(out),
           "--passes", ",".join(PASSES), "--highlight-names", "mm"])
     assert out.exists()
-    assert "<svg" in out.read_text(encoding="utf-8")
+    assert "<svg" in out.read_text(encoding="utf-8") # validate open tag

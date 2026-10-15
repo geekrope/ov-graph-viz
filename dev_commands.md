@@ -66,21 +66,6 @@ start htmlcov/index.html                                 # open it (uncovered li
 
 5. Graphviz version for the README environment section: `dot -V`
 
-Baseline (2026-10-12, TinyLlama int8, ConstantHiding + Truncation(1200)):
-total ~1.1 s; position 0.94 s (6705 nodes incl. virtual vs 1200 real),
-mincross 0.02 s, splines ~0.05 s, SVG 0.05 s.
-
-Same model, Truncation(1500): 1500 nodes / 1569 edges, Maxrank 546,
-38835 nodes in position phase (real + virtual).
-
-| options                       | position | splines        | total   |
-|-------------------------------|----------|----------------|---------|
-| default                       | 76.15 s  | 0.20 s         | ~77 s   |
-| -Gnslimit=2                   | 3.80 s   | 170.86 s       | ~175 s  |
-| -Gnslimit=2 -Gsplines=polyline| 3.98 s   | > 150 s (killed)| > 150 s|
-| -Gsplines=line                | 96.69 s  | 0.03 s         | ~98 s   |
-| -Gnslimit=2 -Gsplines=line    | 2.77 s   | 0.03 s         | ~4 s    |
-
 ## CLI
 
 For quick look at the graph visualizaition use the following CLI command:

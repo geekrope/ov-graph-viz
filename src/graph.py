@@ -24,9 +24,10 @@ class HiddenInput:
 
 @dataclass
 class NodeMetadata:
-    border_color: str | None = None
+    border_color: str = "black"
     hidden_inputs: dict[int, HiddenInput] = field(default_factory=dict)
     proxy_output: bool = False
+    style: str = "rounded,filled"
 
 
 @dataclass

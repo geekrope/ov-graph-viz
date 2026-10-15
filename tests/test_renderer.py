@@ -1,12 +1,24 @@
 from graph import Graph, Node, Edge
 from renderer import GraphvizRenderer
-from transformation import ConstantHidingPass, HighlightingPass
+from transformation import ConstantHidingPass, HighlightingPass, ProxyPass
 
 import copy
 import pytest
 import networkx as nx
 import pydot
 import re
+
+
+def build_graph(graph: Graph):
+    dot_graph = GraphvizRenderer().build(graph)
+    parsed = pydot.graph_from_dot_data(dot_graph.source)
+    assert parsed is not None and len(
+        parsed) == 1, "renderer produced invalid DOT"
+
+    nx_repr = nx.nx_pydot.from_pydot(parsed[0])
+    assert nx_repr.is_directed()
+    assert isinstance(nx_repr, nx.MultiDiGraph)
+    return nx_repr
 
 
 # input -> matmul1 -> add -> matmul2 -> convert -> result1
@@ -49,18 +61,6 @@ def hidden_sample_graph(sample_graph):
     original = copy.deepcopy(graph)
     ConstantHidingPass().apply(graph)
     return graph, original, ids
-
-
-def build_graph(graph: Graph):
-    dot_graph = GraphvizRenderer().build(graph)
-    parsed = pydot.graph_from_dot_data(dot_graph.source)
-    assert parsed is not None and len(
-        parsed) == 1, "renderer produced invalid DOT"
-
-    nx_repr = nx.nx_pydot.from_pydot(parsed[0])
-    assert nx_repr.is_directed()
-    assert isinstance(nx_repr, nx.MultiDiGraph)
-    return nx_repr
 
 
 def node_type(nx_graph: nx.MultiDiGraph, node: str) -> str:
@@ -116,7 +116,7 @@ def test_format_tensor(shape, dtype, expected):
     assert GraphvizRenderer._format_tensor(shape, dtype) == expected
 
 
-# TODO: vector constants match as well 
+# TODO: vector constants match as well
 def test_hidden_ports_rendered(hidden_sample_graph):
     graph, original, _ = hidden_sample_graph
     nx_graph = build_graph(graph)
@@ -126,4 +126,43 @@ def test_hidden_ports_rendered(hidden_sample_graph):
         assert nx_graph.in_degree(str(node_id)) + hidden == original.in_degree(node_id)
 
 
-# TODO: match the number of nodes with expected when applying proxy pass
+# shared -> a, b, c, d (d on ports 0 and 1): 4 consumers, 5 edges -> proxied
+# small -> a, b, c: 3 consumers, exactly at the threshold -> drawn as usual
+@pytest.fixture
+def proxy_graph():
+    graph = Graph()
+    shared = graph.add_node(Node("shared", "Parameter"))
+    small = graph.add_node(Node("small", "Parameter"))
+    single = graph.add_node(Node("single", "Parameter"))
+    a, b, c, d, e = (graph.add_node(Node(name, "Add")) for name in "abcde")
+
+    for dst in (a, b, c):
+        graph.add_edge(Edge(shared, 0, dst, 0))
+        graph.add_edge(Edge(small, 0, dst, 1))
+    graph.add_edge(Edge(shared, 0, d, 0))
+    graph.add_edge(Edge(shared, 0, d, 1))
+
+    for port in range(4):
+        graph.add_edge(Edge(single, 0, e, port))
+
+    return graph
+
+
+def test_proxy_nodes_rendered(proxy_graph):
+    max_consumers = 3
+    graph_copy = copy.deepcopy(proxy_graph)
+    graph = ProxyPass(max_consumers).apply(proxy_graph)
+    nx_repr = build_graph(graph)
+
+    for node_id, _ in graph_copy.nodes.items():
+        succ = {
+            graph_copy.edges[edge_id].to_node for edge_id in graph_copy.outcoming_edges(node_id)}
+
+        if len(succ) > max_consumers:
+            assert nx_repr.out_degree(str(node_id)) == 0
+            for edge_id in graph_copy.outcoming_edges(node_id):
+                edge = graph_copy.edges[edge_id]
+                proxy_name = f"{str(edge.from_node)}_{edge.to_node}_{edge.to_port}"
+                assert nx_repr.has_node(proxy_name)
+        else:
+            assert nx_repr.out_degree(str(node_id)) == graph_copy.out_degree(node_id)
