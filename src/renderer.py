@@ -131,7 +131,8 @@ class GraphvizRenderer(Renderer):
 
         return dg
 
-    def render(self, graph: Graph, path: Path) -> None:
+    def render(self, graph: Graph, path: Path, save_dot=True) -> None:
         dg = self.build(graph)
-        dg.save(path.with_suffix('.dot'))
+        if save_dot:
+            dg.save(path.with_suffix('.dot'))
         dg.render(outfile=path, cleanup=True)

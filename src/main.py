@@ -62,9 +62,6 @@ def timing_report(parsing_time: float, rendering_time: float,
 
 
 def visualize(parser: argparse.ArgumentParser, args: argparse.Namespace):
-    if not args.model.exists():
-        parser.error(f"the file {args.model} is not found")
-
     src = str(args.model)
     dst = str(args.output)
 
@@ -73,7 +70,8 @@ def visualize(parser: argparse.ArgumentParser, args: argparse.Namespace):
         if name and name not in PASSES:
             parser.error(f"unknown pass '{name}', available: {', '.join(PASSES)}")
     passes = [PASSES[name].factory(args) for name in pass_names if name != ""]
-    pipeline = Pipeline([(f"{pass_names[i]}_{i}", transform) for i, transform in enumerate(passes)])
+    pipeline = Pipeline([(pass_names[i], transform) for i, transform in enumerate(passes)])
+    # if multiple passes have the same type the error is raised
 
     parsing_time = time.time()
     graph = OpenVINOParser().parse(Path(src))
@@ -110,10 +108,13 @@ def main(argv: list[str] | None = None):
 
     args = parser.parse_args(argv)
 
-    if args.command == "list-passes":
-        list_passes()
-    elif args.command == "visualize":
-        visualize(parser, args)
+    try:
+        if args.command == "list-passes":
+            list_passes()
+        elif args.command == "visualize":
+            visualize(parser, args)
+    except Exception as e:
+        parser.error(str(e))
 
 
 if __name__ == "__main__":

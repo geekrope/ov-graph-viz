@@ -33,7 +33,17 @@ class OpenVINOParser(ModelParser):
         return None if t.is_dynamic() else t.get_type_name()
 
     def load_model(self, path: Path) -> ov.Model:
-        return ov.Core().read_model(path.absolute())
+        if path.suffix != ".xml":
+            raise ValueError(
+                f"model format '{path.suffix}' is not supported, expected OpenVINO IR (.xml)")
+        if not path.is_file():
+            raise FileNotFoundError(f"model file not found: {path}")
+        try:
+            return ov.Core().read_model(path.absolute())
+        except RuntimeError as e:
+            # OpenVINO prefixes the message with C++ source locations, the reason is the last line
+            reason = str(e).strip().splitlines()[-1]
+            raise SyntaxError(f"failed to read {path}: {reason}") from e
 
     def parse(self, path: Path) -> Graph:
         model = self.load_model(path)

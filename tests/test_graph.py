@@ -57,9 +57,7 @@ def test_topological_sort_height_inversions(tiny_llama_graph):
 def test_add_node_explicit_id():
     graph = Graph()
     assert graph.add_node(Node("A", "Add"), node_id=10) == 10
-    # the counter jumps past the explicit id, so auto ids don't collide with it
     assert graph.add_node(Node("B", "Add")) == 11
-    # an explicit id below the counter doesn't move the counter back
     assert graph.add_node(Node("C", "Add"), node_id=5) == 5
     assert graph.add_node(Node("D", "Add")) == 12
 
@@ -70,6 +68,28 @@ def test_add_node_duplicate_id():
     with pytest.raises(KeyError):
         graph.add_node(Node("B", "Add"), node_id=A)
     assert graph.node(A).name == "A"
+
+
+def test_parallel_edges_ports():
+    graph = Graph()
+    split = graph.add_node(Node("split", "Split"))
+    add = graph.add_node(Node("add", "Add"))
+
+    e1 = graph.add_edge(Edge(split, 1, add, 0, ("1", "?"), "f32"))
+    e0 = graph.add_edge(Edge(split, 0, add, 1, ("1", "4"), "f32"))
+
+    assert graph.outcoming_edges(split) == {e0, e1}
+    assert graph.incoming_edges(add) == {e0, e1}
+    assert (graph.edges[e1].from_port, graph.edges[e1].to_port) == (1, 0)
+    assert (graph.edges[e0].from_port, graph.edges[e0].to_port) == (0, 1)
+    assert graph.edges[e1].shape == ("1", "?")
+
+    graph.remove_edge(e1)
+
+    assert graph.outcoming_edges(split) == {e0}
+    assert graph.incoming_edges(add) == {e0}
+    assert (graph.edges[e0].from_port, graph.edges[e0].to_port) == (0, 1)
+    assert e1 not in graph.edges
 
 
 def test_remove_node():

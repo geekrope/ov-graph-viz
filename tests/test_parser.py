@@ -1,12 +1,31 @@
 from parser import OpenVINOParser
 from graph import Graph
+from pathlib import Path
+from conftest import MODEL
 
 import pytest
+import openvino as ov
+import openvino.opset13 as ops
+import numpy as np
 
 
 @pytest.fixture
 def tiny_model(tiny_model_path):
     return OpenVINOParser().parse(tiny_model_path)
+
+
+# x[2,4] -> split -> (out 1 -> add in 0, out 0 -> add in 1) -> result
+@pytest.fixture
+def split_model(tmp_path):
+    x = ops.parameter([2, 4], np.float32, name="x")
+    split = ops.split(x, 0, 2, name="split")
+    add = ops.add(split.output(1), split.output(0), name="add")
+    res = ops.result(add, name="out")
+    model = ov.Model([res], [x], "split")  # pyright: ignore[reportGeneralTypeIssues]
+
+    path = tmp_path / "split.xml"
+    ov.save_model(model, path, compress_to_fp16=False)
+    return OpenVINOParser().parse(path)
 
 
 def nodes_by_type(graph: Graph, type_name: str):
@@ -43,3 +62,45 @@ def test_edge_meta(tiny_model):
 
 def test_missing_edges(tiny_model):
     assert len(tiny_model.edges) == 6
+
+
+def test_multi_output_ports(split_model):
+    split = nodes_by_type(split_model, "Split")[0]
+    add = nodes_by_type(split_model, "Add")[0]
+
+    ports = {(e.from_port, e.to_port) for e in edges_between(split_model, split, add)}
+
+    assert ports == {(1, 0), (0, 1)}
+
+
+def test_handles_errors(tmp_path):
+    parser = OpenVINOParser()
+
+    garbled_xml = """<?xml version="1.0"?>
+    <net name="broken" version="11">
+            <layers>
+                    <layer id="0" name="x" type="Parameter" version="opset1">
+                            <data shape="1,4" element_type="f32" />
+                            <output>
+                                    <port id="0" precision="FP32">
+                                            <dim>1</dim>
+                                            <dim>4</dim>
+                                    </port>
+                            </output>
+                    </layer>
+                    <layer id="1" name="relu" type="Relu" version="opset1">
+                            <input>
+                                    <port id="0" precision="FP32">
+                                            <dim>1</dim>
+                                            <dim>4</dim>
+    """
+
+    garbled_path = Path(tmp_path) / "garbled.xml"
+    garbled_path.write_text(garbled_xml)
+
+    with pytest.raises(ValueError, match = "not supported"):
+        parser.load_model(MODEL.with_suffix(".txt"))
+    with pytest.raises(FileNotFoundError):
+        parser.load_model(Path("./non_existent.xml"))
+    with pytest.raises(SyntaxError):
+        parser.load_model(garbled_path)

@@ -25,6 +25,6 @@ def test_unknown_pass(tiny_model_path):
 def test_visualize_end_to_end(tiny_model_path, tmp_path):
     out = tmp_path / "graph.svg"
     main(["visualize", "--model", str(tiny_model_path), "--output", str(out),
-          "--passes", ",".join(PASSES), "--highlight-names", "mm"])
+          "--passes", "proxy,highlight,hide-constants", "--highlight-names", "mm"])
     assert out.exists()
     assert "<svg" in out.read_text(encoding="utf-8") # validate open tag
