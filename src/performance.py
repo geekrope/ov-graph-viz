@@ -14,7 +14,7 @@ parsed_model = OpenVINOParser().parse(tiny_ollama_path)
 svg_location = Path("./temp.svg")
 
 ns = np.linspace(100, 1000, 10, dtype=int)
-timings = np.zeros_like(ns)
+timings = np.zeros_like(ns, dtype=float)
 
 for i, n in enumerate(ns):
     renderer_instance = GraphvizRenderer()
@@ -26,8 +26,9 @@ for i, n in enumerate(ns):
     print(f"complete: {n}")
 
 plt.plot(ns, timings)
-plt.xlabel("Model size")
-plt.ylabel("Number of nodes, s")
+plt.title("Tiny Llama")
+plt.xlabel("Number of nodes")
+plt.ylabel("Time, s")
 plt.savefig("../timings.pdf")
 plt.show()
 

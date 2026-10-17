@@ -44,7 +44,7 @@ class GraphvizRenderer(Renderer):
         label = f"[{port}]: {self._format_tensor(hidden.shape, hidden.dtype)}"
         if hidden.shared:
             label += f" (shared: \\<{hidden.id}\\>)"
-        return label
+        return label + self.NEW_LINE
 
     def _node_label(self, node_id: int, node: Node) -> str:
         nl = self.NEW_LINE
@@ -131,7 +131,7 @@ class GraphvizRenderer(Renderer):
 
         return dg
 
-    def render(self, graph: Graph, path: Path, save_dot=True) -> None:
+    def render(self, graph: Graph, path: Path, save_dot=False) -> None:
         dg = self.build(graph)
         if save_dot:
             dg.save(path.with_suffix('.dot'))

@@ -31,9 +31,9 @@ PASSES: dict[str, PassInfo] = {
         "--highlight-names NAME[,NAME...]"),
     "truncate": PassInfo(
         lambda args: TruncationPass(args.truncate_size, args.truncate_offset),
-        "Keeps N nodes starting from position OFFSET in as-late-as-possible "
-        "topological order, i.e. a contiguous part of the network. Nodes at the "
-        "top of the window lose their inputs. Retains the connection with nodes left out of frame. "
+        "Keeps N nodes starting from position OFFSET in depth-wise as-late-as-possible "
+        "topological order, i.e. a contiguous part of the network. "
+        "Retains the connection with nodes left out of frame. "
         "Use to render large models quickly. Use --truncate-size = -1 to keep everything from offset to the end",
         "--truncate-size N (default -1), --truncate-offset OFFSET (default 0)"),
     "proxy": PassInfo(
@@ -78,6 +78,7 @@ def visualize(parser: argparse.ArgumentParser, args: argparse.Namespace):
     parsing_time = time.time() - parsing_time
 
     graph = pipeline.apply(graph)
+    print(f"nodes: {len(graph.nodes)}, edges: {len(graph.edges)}")
 
     rendering_time = time.time()
     GraphvizRenderer().render(graph, Path(dst))
