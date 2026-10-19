@@ -131,7 +131,8 @@ Generated SVGs are in [`examples/`](examples):
 | `speecht5_vocoder.svg` | HiFi-GAN vocoder | none | 605 / 700 |
 | `speecht5_vocoder_hide_const.svg` | HiFi-GAN vocoder | `hide-constants` | 424 / 467 |
 | `tiny_llama_500_hide_const.svg` | TinyLlama | `hide-constants`, `truncate` (first 500 nodes) | 701 / 848 |
-| `tiny_llama_proxy.svg` | TinyLlama, full graph | `proxy` | 3167 / 3738 |
+| `tiny_llama_500_hide_const_proxy.svg` | TinyLlama | `hide-constants`, `truncate` (first 500 nodes), `proxy` | 701 / 848 |
+| `tiny_llama_proxy.svg` | TinyLlama, full graph | `proxy`, `highlight` (`Result_24221`) | 3167 / 3738 |
 
 The examples were produced with:
 
@@ -145,8 +146,9 @@ python src/main.py visualize --model ov_speecht5\openvino_vocoder.xml --output e
 TinyLlama:
 
 ```
-python src/main.py visualize --model ov_TinyLlama_v1_1\openvino_model.xml --output examples\tiny_llama_proxy.svg --passes proxy --max-consumers 3
+python src/main.py visualize --model ov_TinyLlama_v1_1\openvino_model.xml --output examples\tiny_llama_proxy.svg --passes proxy,highlight --max-consumers 3 --highlight-names Result_24221 --timing
 python src/main.py visualize --model ov_TinyLlama_v1_1\openvino_model.xml --output examples\tiny_llama_500_hide_const.svg --passes hide-constants,truncate --truncate-size 500
+python src/main.py visualize --model ov_TinyLlama_v1_1\openvino_model.xml --output examples\tiny_llama_500_hide_const_proxy.svg --passes hide-constants,truncate,proxy --truncate-size 500 --max-consumers 3
 ```
 
 The 500-node window renders as 701 nodes and 848 edges, because `truncate`
@@ -202,7 +204,12 @@ In TinyLlama some nodes (attention mask, position ids, rotary embedding
 tables) feed every one of the 22 layers. `ProxyPass` marks nodes with more than `K` consumers, and the
 renderer draws a dashed copy of such a node next to each consumer instead of a
 long edge. The copy keeps the original id in its label, so it is still clear
-which node it stands for. See `tiny_llama_proxy.svg`.
+which node it stands for. Proxies are drawn by the renderer only, so the graph
+itself keeps the same nodes and edges.
+
+Before and after: `tiny_llama_500_hide_const.svg` and
+`tiny_llama_500_hide_const_proxy.svg` show the same 500-node window without
+and with `proxy`. See also `tiny_llama_proxy.svg` for the full graph.
 
 ## Extensibility
 
@@ -256,12 +263,18 @@ TinyLlama-1.1B-Chat-v1.0 (fp16): 3167 nodes, 3738 edges. After `hide-constants`:
 |---|---|
 | Model loading and IR construction | 0.14 |
 | `proxy` (`--max-consumers 3`) | 0.001 |
-| Rendering the full model to SVG (only `proxy` applied) | 11.7 |
+| `highlight` (`Result_24221`) | 0.0002 |
+| Rendering the full model to SVG (`proxy`, `highlight` applied) | 11.7 |
+| `hide-constants` (full model) | 0.003 |
+| `truncate` (`--truncate-size 500`, after `hide-constants`) | 0.003 |
+| Rendering the 500-node window to SVG (`hide-constants`, `truncate`, `proxy` applied) | 3.5 |
 
 Graph processing takes a fraction of a second; rendering with Graphviz takes
 more than 98% of the total time and is the bottleneck.
 
-## Known limitations
+The plot [`timings.pdf`](timings.pdf) illustrates how the processing time changes depending on the number of nodes
+
+## Known limitations and potential improvements
 
 - **No paginated view.** The whole (possibly truncated) graph is rendered into a
   single SVG; there is no way to split a large model into pages and navigate
@@ -284,3 +297,7 @@ more than 98% of the total time and is the bottleneck.
   border color of nodes matched by name, so it commutes with every other pass,
   and two highlighting passes are equivalent to one with the union of the names.
   The Python API has no such restriction.
+- **No pattern collapsing.** Repeated subgraphs are drawn node by node. A possible improvement
+  is a pass that finds such patterns and replaces each occurrence with a single
+  node, keeping its external inputs and outputs, so the graph becomes much
+  smaller and easier to read.
