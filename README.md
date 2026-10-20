@@ -10,8 +10,8 @@ OpenVINO IR (.xml/.bin) -> parser -> Graph -> pass 1 -> ... -> pass N -> rendere
 
 ## Getting started
 
-Requirements: Python 3.12 or 3.13 (3.14 is not supported by the pinned
-dependencies) and the Graphviz binaries (`dot` must be on `PATH`;
+Requirements: Python 3.13 (3.14 is not supported by the pinned dependencies)
+and the Graphviz binaries (`dot` must be on `PATH`;
 the `graphviz` Python package is only a wrapper around them).
 
 ```
@@ -24,6 +24,9 @@ sudo apt install graphviz      # Ubuntu / Debian
 
 pip install -r requirements.txt
 ```
+
+To run the tool, export a model as described in [Example models](#example-models)
+and render it as shown in [Usage](#usage).
 
 ## Example models
 
@@ -245,7 +248,7 @@ Most tests use small synthetic graphs and run without any downloads. Tests on
 the real model are skipped if `ov_TinyLlama_v1_1/openvino_model.xml` is missing:
 
 - topological sort on the full graph (`tests/test_graph.py`);
-- rendering of proxy nodes (`tests/test_renderer.py`).
+- truncation window sizes (`tests/test_transformation.py`).
 
 ## Performance
 
