@@ -10,24 +10,20 @@ OpenVINO IR (.xml/.bin) -> parser -> Graph -> pass 1 -> ... -> pass N -> rendere
 
 ## Getting started
 
-Requirements: Python 3.12+ and the Graphviz binaries (`dot` must be on `PATH`;
+Requirements: Python 3.12 or 3.13 (3.14 is not supported by the pinned
+dependencies) and the Graphviz binaries (`dot` must be on `PATH`;
 the `graphviz` Python package is only a wrapper around them).
 
 ```
+git clone https://github.com/geekrope/ov-graph-viz.git
+cd ov-graph-viz
+
 # Graphviz: https://graphviz.org/download/
 winget install graphviz        # Windows
 sudo apt install graphviz      # Ubuntu / Debian
 
 pip install -r requirements.txt
 ```
-
-Export a model (see [Example models](#example-models)) and render it:
-
-```
-python src/main.py visualize --model ov_resnet18\openvino_model.xml --output resnet18.svg --passes hide-constants
-```
-
-Open the SVG in a web browser.
 
 ## Example models
 

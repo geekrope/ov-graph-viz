@@ -166,3 +166,16 @@ def test_proxy_nodes_rendered(proxy_graph):
                 assert nx_repr.has_node(proxy_name)
         else:
             assert nx_repr.out_degree(str(node_id)) == graph_copy.out_degree(node_id)
+
+
+def test_proxy_nodes_style_inheritance(proxy_graph):
+    max_consumers = 3
+    proxy_graph = HighlightingPass({"shared"}).apply(proxy_graph)
+    proxy_graph = ProxyPass(max_consumers).apply(proxy_graph)
+    node_id = [id for id, node in proxy_graph.nodes.items() if node.name == "shared"][0]
+    nx_repr = build_graph(proxy_graph)
+
+    for name, node in nx_repr.nodes.items():
+        if name.split("_")[0] == str(node_id):
+            color = node["color"].strip('"')
+            assert color == "red"
